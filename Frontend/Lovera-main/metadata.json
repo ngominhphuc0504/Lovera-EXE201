@@ -1,0 +1,7 @@
+{
+  "name": "LOVERA - Couple Dashboard & AI Dating Planner",
+  "description": "A modern, warm, and romantic couple application with love day counters, AI dating planner, and gamified digital garden.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
