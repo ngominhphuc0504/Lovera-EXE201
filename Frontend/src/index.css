@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+@layer base {
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .font-serif-romantic {
+    font-family: 'Playfair Display', Georgia, serif;
+  }
+
+  .font-display {
+    font-family: 'Outfit', sans-serif;
+  }
+
+  /* Ẩn hoàn toàn thanh trượt thẳng (vertical scrollbar) và thanh trượt ngang trên tất cả trình duyệt */
+  *, html, body, div, main, aside, section {
+    -ms-overflow-style: none !important; /* IE and Edge */
+    scrollbar-width: none !important; /* Firefox */
+  }
+
+  *::-webkit-scrollbar,
+  html::-webkit-scrollbar,
+  body::-webkit-scrollbar,
+  div::-webkit-scrollbar {
+    display: none !important; /* Chrome, Safari, Opera, WebKit */
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.6) 50%, rgba(255,255,255,0) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s infinite;
+}
+
+@keyframes heartPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+  14% {
+    transform: scale(1.18);
+    opacity: 1;
+    filter: drop-shadow(0 0 14px rgba(244, 63, 94, 0.45));
+  }
+  28% {
+    transform: scale(1.05);
+    opacity: 0.95;
+  }
+  42% {
+    transform: scale(1.15);
+    opacity: 1;
+    filter: drop-shadow(0 0 12px rgba(244, 63, 94, 0.4));
+  }
+  70% {
+    transform: scale(1);
+    opacity: 0.95;
+  }
+}
+
+@keyframes softFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes gardenGlow {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(1.06);
+  }
+}
+
+.animate-heart-pulse {
+  animation: heartPulse 2.4s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+}
+
+.animate-soft-float {
+  animation: softFloat 4s ease-in-out infinite;
+}
+
+.animate-garden-glow {
+  animation: gardenGlow 3s ease-in-out infinite;
+}
+
+/* Custom romantic range slider styling */
+input[type=range].slider-romantic {
+  -webkit-appearance: none;
+  background: transparent;
+}
+
+input[type=range].slider-romantic::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 22px;
+  width: 22px;
+  border-radius: 50%;
+  background: #f43f5e;
+  border: 3px solid #ffffff;
+  box-shadow: 0 2px 6px rgba(244, 63, 94, 0.4);
+  cursor: pointer;
+  margin-top: -7px;
+  transition: transform 0.15s ease;
+}
+
+input[type=range].slider-romantic::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+input[type=range].slider-romantic::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 8px;
+  cursor: pointer;
+  background: #fce7f3;
+  border-radius: 9999px;
+}
