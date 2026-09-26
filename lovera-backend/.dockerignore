@@ -1,0 +1,6 @@
+**/bin
+**/obj
+.git
+.env
+NuGet.Config
+**/appsettings.Development.json
