@@ -14,7 +14,7 @@ Nếu tổng quan và FRD khác mức chi tiết, backend theo yêu cầu trực
 
 | Mục | Backend | Kiểm chứng |
 |---|---|---|
-| FR00.01 | Đăng ký email/password; OTP 6 chữ số qua SMTP; xác thực và gửi lại | xUnit + HTTP/SMTP thử nghiệm |
+| FR00.01 | Đăng ký email/password dài 6–128 ký tự; OTP 6 chữ số qua SMTP; xác thực và gửi lại | xUnit + HTTP/SMTP thử nghiệm |
 | FR00.02 | Token phiên ngẫu nhiên lưu hash; đăng nhập và thu hồi phiên khi logout | xUnit + HTTP thử nghiệm |
 | FR00.03 | GET/PUT hồ sơ tên và avatar; upload PNG/JPEG/WebP, GET ảnh chỉ với phiên của chủ tài khoản | xUnit + HTTP thử nghiệm |
 | BR00.1 | Chuẩn hóa email và unique index PostgreSQL | migration + thử email trùng 409 |

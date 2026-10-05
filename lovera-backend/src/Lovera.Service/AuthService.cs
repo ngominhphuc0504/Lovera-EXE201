@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 
 namespace Lovera.Service;
-public sealed record RegisterRequest([Required, EmailAddress, MaxLength(320)] string Email, [Required, MinLength(12), MaxLength(128)] string Password, [Required, MinLength(1), MaxLength(80)] string DisplayName);
+public sealed record RegisterRequest([Required, EmailAddress, MaxLength(320)] string Email, [Required, MinLength(6), MaxLength(128)] string Password, [Required, MinLength(1), MaxLength(80)] string DisplayName);
 public sealed record VerifyRequest([Required, EmailAddress] string Email, [Required, RegularExpression("^[0-9]{6}$")] string Code);
 public sealed record LoginRequest([Required, EmailAddress] string Email, [Required, MaxLength(128)] string Password);
 public sealed record UpdateProfileRequest([Required, MinLength(1), MaxLength(80)] string DisplayName, string? AvatarUrl);
@@ -26,7 +26,7 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
     {
         var email = NormalizeEmail(input.Email);
         var name = ValidateName(input.DisplayName);
-        if (input.Password.Length < 12 || input.Password.Length > 128) throw new AppProblem(400, "invalid_password", "Mật khẩu phải dài 12-128 ký tự.");
+        if (input.Password.Length < 6 || input.Password.Length > 128) throw new AppProblem(400, "invalid_password", "Mật khẩu phải dài 6-128 ký tự.");
         if (await users.FindByEmail(email, ct) is not null) throw new AppProblem(409, "email_exists", "Email đã được đăng ký.");
         var now = clock.UtcNow;
         var user = new UserAccount { Email = email, DisplayName = name, PasswordHash = Passwords.Hash(input.Password), CreatedAtUtc = now };
