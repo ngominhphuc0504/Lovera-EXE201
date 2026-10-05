@@ -30,6 +30,15 @@ builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
 }));
 builder.Services.AddDbContext<LoveraDbContext>(o => o.UseNpgsql(connection));
 builder.Services.AddScoped<IUsersRepository, UsersRepository>();
+builder.Services.AddScoped<IFeatureRepository, FeatureRepository>();
+builder.Services.AddSingleton(_ => TimeZoneInfo.FindSystemTimeZoneById(builder.Configuration["TimeZone:Id"] ?? "Asia/Ho_Chi_Minh"));
+builder.Services.AddScoped<CoupleService>();
+builder.Services.AddScoped<GardenService>();
+builder.Services.AddScoped<ConnectionStatusService>();
+builder.Services.AddScoped<MemoryService>();
+builder.Services.AddScoped<DatePlanService>();
+builder.Services.AddHttpClient<IDatePlanGenerator, HttpDatePlanGenerator>(client =>
+    client.Timeout = TimeSpan.FromSeconds(builder.Configuration.GetValue("Ai:TimeoutSeconds", 15)));
 builder.Services.AddSingleton<IAvatarStorage>(new LocalAvatarStorage(builder.Configuration["Avatar:Directory"] ?? Path.Combine(builder.Environment.ContentRootPath, "avatars")));
 builder.Services.AddSingleton<IClock, Lovera.Service.SystemClock>();
 builder.Services.AddScoped<AuthService>(sp => new AuthService(sp.GetRequiredService<IUsersRepository>(), sp.GetRequiredService<IVerificationMail>(), sp.GetRequiredService<IClock>(), sp.GetRequiredService<IAvatarStorage>(), pepper));

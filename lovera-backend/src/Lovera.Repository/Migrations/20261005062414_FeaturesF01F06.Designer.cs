@@ -3,6 +3,7 @@ using System;
 using Lovera.Repository;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Lovera.Repository.Migrations
 {
     [DbContext(typeof(LoveraDbContext))]
-    partial class LoveraDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005062414_FeaturesF01F06")]
+    partial class FeaturesF01F06
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

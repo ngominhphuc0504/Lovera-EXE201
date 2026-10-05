@@ -1,6 +1,6 @@
-# LOVERA API deployment (F00)
+# LOVERA API deployment (F00–F06)
 
-This directory is a separate deployment copy. The Rider project under `Downloads/Semester FPT/EXE201/lovera-backend 2` is unchanged by this copy.
+This is the same API, Service, Repository solution used for local development. Deployment is not automatic; a public HTTPS hostname and production services must be configured by the project owner.
 
 ## Runtime layout
 
@@ -25,6 +25,12 @@ This directory is a separate deployment copy. The Rider project under `Downloads
 | `Smtp__Username` | provider account | SMTP authentication. |
 | `Smtp__Password` | private value | SMTP authentication. |
 | `Avatar__Directory` | `/app/avatars` | Must be on a persistent disk. |
+| `Pairing__CodeHours` | `24` | Pairing code lifetime, 1–168 hours. |
+| `TimeZone__Id` | `Asia/Ho_Chi_Minh` | Calendar date for Love Days and daily point limits. |
+| `Ai__ChatCompletionsUrl` | HTTPS provider endpoint | Chat Completions compatible AI service for F03. |
+| `Ai__Model` | provider model name | AI model for F03. |
+| `Ai__ApiKey` | private value | AI service credential; never commit. |
+| `Ai__TimeoutSeconds` | `15` | Timeout for AI request. |
 | `Database__ApplyMigrationsOnStartup` | `true` | Apply EF Core migrations before accepting traffic on a single instance. |
 
 Add sensitive values in the platform's secret/environment settings, never in `appsettings.json`, a repository, or a Docker build argument. The previously shared Gmail and Cloudinary credentials must be rotated before any public deployment.
@@ -32,8 +38,8 @@ Add sensitive values in the platform's secret/environment settings, never in `ap
 ## API checks
 
 - Set the service's HTTP health check path to `/health/ready`. It returns 200 only when the API can query PostgreSQL.
-- After the platform provides a public HTTPS hostname, open `https://<api-host>/swagger/index.html` to inspect F00. Frontend code uses `https://<api-host>` as its API base URL.
+- After the platform provides a public HTTPS hostname, open `https://<api-host>/swagger/index.html` to inspect F00–F06. Frontend code uses `https://<api-host>` as its API base URL.
 - From the frontend origin, a browser preflight request to `OPTIONS /api/auth/login` should receive `Access-Control-Allow-Origin` for that origin. Other origins should not receive the header.
 - Register a test account, verify the OTP through the configured mailbox, log in, read `/api/profile/me`, upload an avatar, and read it after a redeploy to confirm storage persistence.
 
-The current backend implements F00 only. F01–F06 are not part of this deployment copy.
+F03 returns a fallback until a real AI provider is configured. See [docs/features-f01-f06.md](docs/features-f01-f06.md) for the endpoint contract and remaining product choices.
