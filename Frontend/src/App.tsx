@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Screen, CoupleData, DatePlan, DateType, ConnectionStatusType } from './types';
 import { 
   INITIAL_COUPLE, 
@@ -7,6 +7,7 @@ import {
   INITIAL_NOTIFICATIONS 
 } from './data/mockData';
 import { playSound } from './utils/audio';
+import { getProfile, getStoredToken, clearStoredToken, logoutUser } from './services/api';
 
 import { Header } from './components/common/Header';
 import { BottomNav } from './components/common/BottomNav';
@@ -63,6 +64,30 @@ export default function App() {
       setFloatingHearts(prev => prev.filter(h => h.id !== id));
     }, 1600);
   };
+
+  // Kiểm tra phiên đăng nhập từ Backend khi ứng dụng khởi chạy
+  useEffect(() => {
+    const token = getStoredToken();
+    if (token) {
+      getProfile()
+        .then((profile) => {
+          if (profile && profile.email) {
+            setCouple((prev) => ({
+              ...prev,
+              userA: {
+                ...prev.userA,
+                email: profile.email,
+                name: profile.displayName || prev.userA.name,
+              },
+            }));
+            setCurrentScreen('home');
+          }
+        })
+        .catch(() => {
+          clearStoredToken();
+        });
+    }
+  }, []);
 
   // -----------------------------------------------------------------
   // POINTS & GAMIFICATION HANDLERS
@@ -265,8 +290,12 @@ export default function App() {
     setCurrentScreen('pairing');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     playSound('click');
+    try {
+      await logoutUser();
+    } catch {}
+    clearStoredToken();
     setCurrentScreen('welcome');
   };
 

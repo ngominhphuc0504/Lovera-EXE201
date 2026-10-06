@@ -25,8 +25,10 @@ foreach (var origin in allowedOrigins)
 }
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
 {
-    if (allowedOrigins.Length > 0) policy.WithOrigins(allowedOrigins);
-    policy.AllowAnyHeader().AllowAnyMethod();
+    policy.SetIsOriginAllowed(origin => true) // Cho phép mọi origin/port từ localhost (3000, 3001, v.v.)
+          .AllowAnyHeader()
+          .AllowAnyMethod()
+          .AllowCredentials();
 }));
 builder.Services.AddDbContext<LoveraDbContext>(o => o.UseNpgsql(connection));
 builder.Services.AddScoped<IUsersRepository, UsersRepository>();
