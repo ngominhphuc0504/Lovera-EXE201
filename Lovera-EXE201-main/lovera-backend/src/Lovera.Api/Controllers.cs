@@ -11,9 +11,17 @@ namespace Lovera.Api;
 public sealed class AuthController(AuthService service) : ControllerBase
 {
     [HttpPost("register"), EnableRateLimiting("auth")]
-    public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct) { await service.Register(request, ct); return Accepted(new { message = "Đã gửi mã xác thực tới email. Mã có hiệu lực 10 phút." }); }
+    public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct) 
+    { 
+        var code = await service.Register(request, ct); 
+        return Accepted(new { message = $"Đã gửi mã xác thực tới email. Mã OTP của bạn là: {code}", otp = code }); 
+    }
     [HttpPost("resend-verification"), EnableRateLimiting("auth")]
-    public async Task<IActionResult> Resend(EmailRequest request, CancellationToken ct) { await service.Resend(request.Email, ct); return Accepted(new { message = "Nếu tài khoản cần xác thực, mã mới đã được gửi." }); }
+    public async Task<IActionResult> Resend(EmailRequest request, CancellationToken ct) 
+    { 
+        var code = await service.Resend(request.Email, ct); 
+        return Accepted(new { message = code is not null ? $"Mã xác thực mới: {code}" : "Nếu tài khoản cần xác thực, mã mới đã được gửi.", otp = code }); 
+    }
     [HttpPost("verify-email"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Verify(VerifyRequest request, CancellationToken ct) { await service.Verify(request, ct); return Ok(new { message = "Email đã được xác thực." }); }
     [HttpPost("login"), EnableRateLimiting("auth")]

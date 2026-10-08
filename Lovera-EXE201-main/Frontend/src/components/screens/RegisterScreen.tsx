@@ -92,6 +92,9 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
 
       playSound('chime');
       setSuccessMessage(res.message || 'Đã gửi mã xác thực tới email. Mã có hiệu lực 10 phút.');
+      if (res.otp) {
+        setOtpCode(res.otp);
+      }
       setStep('verify');
     } catch (err: any) {
       playSound('error');
@@ -156,6 +159,9 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
       const res = await resendVerification(email.trim());
       playSound('chime');
       setSuccessMessage(res.message || 'Đã gửi lại mã xác thực mới tới email.');
+      if (res.otp) {
+        setOtpCode(res.otp);
+      }
       setResendTimer(60);
       const interval = setInterval(() => {
         setResendTimer((prev) => {

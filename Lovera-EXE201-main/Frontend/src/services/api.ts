@@ -140,8 +140,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
  * - Yêu cầu: Email, Password (tối thiểu 12 ký tự), DisplayName
  * - Phản hồi: 202 Accepted { message: "Đã gửi mã xác thực tới email. Mã có hiệu lực 10 phút." }
  */
-export async function registerUser(data: RegisterRequest): Promise<{ message: string }> {
-  return request<{ message: string }>('/auth/register', {
+export async function registerUser(data: RegisterRequest): Promise<{ message: string; otp?: string }> {
+  return request<{ message: string; otp?: string }>('/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -166,8 +166,8 @@ export async function verifyEmail(data: VerifyRequest): Promise<{ message: strin
  * - Yêu cầu: Email
  * - Phản hồi: 202 Accepted { message: "Nếu tài khoản cần xác thực, mã mới đã được gửi." }
  */
-export async function resendVerification(email: string): Promise<{ message: string }> {
-  return request<{ message: string }>('/auth/resend-verification', {
+export async function resendVerification(email: string): Promise<{ message: string; otp?: string }> {
+  return request<{ message: string; otp?: string }>('/auth/resend-verification', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
