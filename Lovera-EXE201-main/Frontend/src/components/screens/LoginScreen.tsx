@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Heart, Lock, Mail, ArrowLeft, Eye, EyeOff, AlertCircle, LogIn, CheckCircle2 } from 'lucide-react';
 import { playSound } from '../../utils/audio';
+import { loginUser } from '../../services/api';
 
 interface LoginScreenProps {
   onLoginSuccess: (email: string, name: string, isAlreadyPaired: boolean) => void;
@@ -19,18 +20,19 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Email format validation
+  // Kiểm tra định dạng email
   const validateEmail = (val: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  // Hàm xử lý Đăng nhập gọi API thật về Backend
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     const trimmedEmail = email.trim();
 
-    // Basic input validations
+    // 1. Kiểm tra tính hợp lệ của dữ liệu nhập
     if (!trimmedEmail) {
       setError('Vui lòng nhập địa chỉ email của bạn.');
       playSound('error');
@@ -58,21 +60,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setIsLoading(true);
     playSound('click');
 
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      // 2. GỬI REQUEST API THẬT ĐẾN BACKEND (.NET)
+      const result = await loginUser(trimmedEmail, password);
+
       playSound('success');
 
-      // Determine default paired state for demo
-      // If user typed alex or logged in as alex@lovera.app, we can simulate either
-      const isPaired = trimmedEmail.toLowerCase().includes('paired');
-      const name = trimmedEmail.split('@')[0] || 'Alex';
-      const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
-      
-      onLoginSuccess(trimmedEmail, capitalizedName, isPaired);
-    }, 600);
+      // Lấy tên và profile thực tế từ Backend
+      const name = result?.profile?.displayName || trimmedEmail.split('@')[0] || 'User';
+      const isPaired = false;
+
+      // Chuyển màn hình sau khi đăng nhập thành công
+      onLoginSuccess(trimmedEmail, name, isPaired);
+    } catch (err: any) {
+      playSound('error');
+      const code = err?.code || err?.problem?.code;
+      if (code === 'email_unverified') {
+        setError('Tài khoản chưa được kích hoạt: Bạn cần xác thực mã email trước khi đăng nhập.');
+      } else if (code === 'invalid_credentials') {
+        setError('Email hoặc mật khẩu không chính xác.');
+      } else if (code === 'login_locked') {
+        setError('Đăng nhập bị khóa tạm thời 15 phút do thử sai nhiều lần.');
+      } else {
+        setError(err.message || 'Đăng nhập thất bại. Vui lòng kiểm tra kết nối máy chủ.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Quick preset helper for tester/demo
+  // Nút hỗ trợ test nhanh
   const handleQuickPreset = (presetEmail: string, presetPass: string, alreadyPaired: boolean) => {
     setEmail(presetEmail);
     setPassword(presetPass);
@@ -187,7 +204,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full min-h-[46px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 mt-2"
+          className="w-full min-h-[46px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer"
         >
           {isLoading ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -208,7 +225,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="button"
               onClick={() => handleQuickPreset('alex.new@lovera.app', 'password123', false)}
-              className="p-2 bg-white/90 hover:bg-rose-50 rounded-xl border border-rose-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col"
+              className="p-2 bg-white/90 hover:bg-rose-50 rounded-xl border border-rose-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
             >
               <span className="text-rose-600 font-bold">1. Alex (Chưa kết nối)</span>
               <span className="text-[9px] text-stone-400">→ Chuyển đến Pairing</span>
@@ -216,7 +233,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="button"
               onClick={() => handleQuickPreset('alex.paired@lovera.app', 'password123', true)}
-              className="p-2 bg-white/90 hover:bg-emerald-50 rounded-xl border border-emerald-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col"
+              className="p-2 bg-white/90 hover:bg-emerald-50 rounded-xl border border-emerald-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
             >
               <span className="text-emerald-700 font-bold">2. Alex (Đã ghép đôi)</span>
               <span className="text-[9px] text-stone-400">→ Vào thẳng Couple Home</span>
@@ -235,7 +252,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               playSound('click');
               onNavigateToRegister();
             }}
-            className="font-bold text-rose-600 hover:text-rose-700 hover:underline"
+            className="font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
           >
             Đăng ký ngay
           </button>

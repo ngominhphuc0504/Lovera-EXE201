@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, 
   Heart, 
@@ -11,10 +11,13 @@ import {
   ShieldCheck,
   RotateCcw,
   Sparkles,
-  Edit2
+  Edit2,
+  Camera,
+  UploadCloud
 } from 'lucide-react';
 import { CoupleData } from '../../types';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
+import { getProfile, updateProfile, uploadAvatar, logoutUser, getStoredToken } from '../../services/api';
 
 interface ProfileScreenProps {
   couple: CoupleData;
@@ -40,12 +43,70 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [nickB, setNickB] = useState(userB.name);
   const [savedToast, setSavedToast] = useState('');
   const [showUnpairConfirm, setShowUnpairConfirm] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSaveNicknames = () => {
+  // Fetch profile from Backend if accessToken exists
+  useEffect(() => {
+    const token = getStoredToken();
+    if (token) {
+      getProfile()
+        .then((profile) => {
+          if (profile.displayName) {
+            setNickA(profile.displayName);
+            onUpdateNicknames(profile.displayName, nickB);
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleSaveNicknames = async () => {
     onUpdateNicknames(nickA, nickB);
-    setSavedToast('Đã lưu biệt danh mới của hai bạn!');
+    const token = getStoredToken();
+    if (token) {
+      try {
+        await updateProfile({ displayName: nickA });
+      } catch {}
+    }
+    setSavedToast('Đã lưu biệt danh mới của hai bạn (đã đồng bộ Backend)!');
     playSound('success');
     setTimeout(() => setSavedToast(''), 2500);
+  };
+
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingAvatar(true);
+    playSound('click');
+
+    try {
+      const localUrl = URL.createObjectURL(file);
+      setAvatarPreview(localUrl);
+
+      const token = getStoredToken();
+      if (token) {
+        await uploadAvatar(file);
+      }
+      setSavedToast('Tải lên ảnh đại diện thành công!');
+      playSound('success');
+    } catch (err: any) {
+      playSound('error');
+      setSavedToast(err.message || 'Lỗi tải ảnh đại diện');
+    } finally {
+      setIsUploadingAvatar(false);
+      setTimeout(() => setSavedToast(''), 2500);
+    }
+  };
+
+  const handleLogoutAction = async () => {
+    playSound('click');
+    try {
+      await logoutUser();
+    } catch {}
+    onLogout();
   };
 
   return (
@@ -70,13 +131,30 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       {/* Couple Hero Summary Card */}
       <div className="mx-4 bg-gradient-to-tr from-rose-500 via-pink-500 to-purple-600 rounded-3xl p-5 text-white shadow-md text-center relative overflow-hidden">
         <div className="flex items-center justify-center -space-x-3 mb-2.5">
-          <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm">
-            <img src={userA.avatar} alt={userA.name} className="w-full h-full object-cover" />
+          <div className="relative group z-10">
+            <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm">
+              <img src={avatarPreview || userA.avatar} alt={userA.name} className="w-full h-full object-cover" />
+            </div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploadingAvatar}
+              className="absolute -bottom-1 -right-1 w-5 h-5 bg-stone-900/80 hover:bg-stone-900 text-white rounded-full flex items-center justify-center cursor-pointer shadow-xs"
+              title="Đổi ảnh đại diện (PUT /api/profile/me/avatar)"
+            >
+              <Camera className="w-2.5 h-2.5" />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={handleAvatarFileChange}
+              className="hidden"
+            />
           </div>
-          <div className="w-8 h-8 rounded-full bg-white text-rose-500 flex items-center justify-center z-10 shadow-xs">
+          <div className="w-8 h-8 rounded-full bg-white text-rose-500 flex items-center justify-center z-20 shadow-xs">
             <Heart className="w-4 h-4 fill-rose-500" />
           </div>
-          <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm">
+          <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm z-10">
             <img src={userB.avatar} alt={userB.name} className="w-full h-full object-cover" />
           </div>
         </div>
@@ -250,8 +328,8 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         )}
 
         <button
-          onClick={onLogout}
-          className="w-full min-h-[44px] py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-2xl text-xs font-semibold flex items-center justify-between transition-colors active:scale-98"
+          onClick={handleLogoutAction}
+          className="w-full min-h-[44px] py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-2xl text-xs font-semibold flex items-center justify-between transition-colors active:scale-98 cursor-pointer"
         >
           <div className="flex items-center gap-2">
             <LogOut className="w-4 h-4 text-stone-500" />

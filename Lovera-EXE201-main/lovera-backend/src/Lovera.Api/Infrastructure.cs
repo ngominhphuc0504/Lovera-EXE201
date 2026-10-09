@@ -30,16 +30,32 @@ public sealed class SessionAuthHandler(IOptionsMonitor<AuthenticationSchemeOptio
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name));
     }
 }
-public sealed class SmtpVerificationMail(IConfiguration config) : IVerificationMail
+public sealed class SmtpVerificationMail(IConfiguration config, ILogger<SmtpVerificationMail> logger) : IVerificationMail
 {
     public async Task Send(string email, string code, CancellationToken ct)
     {
-        var host = config["Smtp:Host"] ?? throw new InvalidOperationException("Missing Smtp:Host");
-        var from = config["Smtp:From"] ?? throw new InvalidOperationException("Missing Smtp:From");
-        var port = int.Parse(config["Smtp:Port"] ?? "25");
-        using var client = new SmtpClient(host, port) { EnableSsl = bool.Parse(config["Smtp:EnableSsl"] ?? "false") };
-        if (!string.IsNullOrEmpty(config["Smtp:Username"])) client.Credentials = new NetworkCredential(config["Smtp:Username"], config["Smtp:Password"]);
-        using var message = new MailMessage(from, email) { Subject = "LOVERA - Xác thực email", Body = $"Mã xác thực của bạn: {code}\nMã hết hạn sau 10 phút. Nếu bạn không đăng ký, hãy bỏ qua email này." };
-        await client.SendMailAsync(message, ct);
+        try
+        {
+            var host = config["Smtp:Host"] ?? "localhost";
+            var from = config["Smtp:From"] ?? "no-reply@lovera.local";
+            var port = int.Parse(config["Smtp:Port"] ?? "1025");
+            using var client = new SmtpClient(host, port) 
+            { 
+                EnableSsl = bool.Parse(config["Smtp:EnableSsl"] ?? "false"),
+                Timeout = 2500 
+            };
+            if (!string.IsNullOrEmpty(config["Smtp:Username"])) client.Credentials = new NetworkCredential(config["Smtp:Username"], config["Smtp:Password"]);
+            using var message = new MailMessage(from, email) { Subject = "LOVERA - Xác thực email", Body = $"Mã xác thực của bạn: {code}\nMã hết hạn sau 10 phút. Nếu bạn không đăng ký, hãy bỏ qua email này." };
+            await client.SendMailAsync(message, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "[LOVERA DEV OTP] SMTP chưa khởi chạy, xuất mã xác thực ra màn hình: {Email} -> {Code}", email, code);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n=================================================================");
+            Console.WriteLine($"[LOVERA DEV OTP] MÃ XÁC THỰC CHO {email} LÀ: {code}");
+            Console.WriteLine($"=================================================================\n");
+            Console.ResetColor();
+        }
     }
 }

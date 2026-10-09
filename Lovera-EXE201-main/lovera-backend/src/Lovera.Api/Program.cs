@@ -26,7 +26,7 @@ foreach (var origin in allowedOrigins)
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
 {
     if (allowedOrigins.Length > 0) policy.WithOrigins(allowedOrigins);
-    policy.AllowAnyHeader().AllowAnyMethod();
+    policy.AllowAnyHeader().AllowAnyMethod().AllowCredentials();
 }));
 builder.Services.AddDbContext<LoveraDbContext>(o => o.UseNpgsql(connection));
 builder.Services.AddScoped<IUsersRepository, UsersRepository>();
