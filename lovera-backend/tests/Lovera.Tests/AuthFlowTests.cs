@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using Lovera.Repository;
 using Lovera.Service;
 using Xunit;
@@ -5,6 +6,22 @@ using Xunit;
 namespace Lovera.Tests;
 public sealed class AuthFlowTests
 {
+    [Fact]
+    public async Task Registration_accepts_six_characters_and_rejects_five()
+    {
+        var passwordParameter = typeof(RegisterRequest).GetConstructors().Single()
+            .GetParameters().Single(p => p.Name == "Password");
+        var minimum = (MinLengthAttribute?)Attribute.GetCustomAttribute(passwordParameter, typeof(MinLengthAttribute));
+        Assert.Equal(6, minimum?.Length);
+        var six = new RegisterRequest("six@example.com", "abc123", "Alice");
+        var five = six with { Password = "abc12" };
+
+        var repo = new MemoryUsers();
+        var service = new AuthService(repo, new MemoryMail(), new TestClock(), new MemoryAvatars(), new string('p', 32));
+        Assert.Equal("invalid_password", (await Assert.ThrowsAsync<AppProblem>(() => service.Register(five, default))).Code);
+        await service.Register(six, default);
+        Assert.NotNull(repo.User);
+    }
     [Fact]
     public async Task Register_verify_login_profile_logout_flow()
     {

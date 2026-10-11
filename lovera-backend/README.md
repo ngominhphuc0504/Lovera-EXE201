@@ -1,25 +1,26 @@
-# LOVERA backend OC1 — F00
+# LOVERA backend OC1 — F00–F06
 
 For public HTTPS deployment and frontend CORS configuration, see [DEPLOYMENT.md](DEPLOYMENT.md). Set `CORS_ALLOWED_ORIGINS` to exact comma-separated frontend origins in local Docker Compose; the deployment environment uses `Cors__AllowedOrigins`.
 
-Backend .NET 8 riêng cho LOVERA. Phiên bản này triển khai **F00 Authentication & User Profile** của `LOVERA_FRD_OC1_MVP_v1.1.docx` (Draft, 23/09/2026), đã đối chiếu với bản Project Overview do chủ dự án cung cấp. F01–F06 chưa có endpoint hay bảng dữ liệu. Backend PIEDTEAM chỉ được dùng để tham khảo cách chia API, Service, Repository; không sao chép nghiệp vụ. Xem [bản đồ nguồn yêu cầu](docs/requirements-map.md) để phân biệt yêu cầu chi tiết, bối cảnh sản phẩm và quyết định kỹ thuật.
+Backend .NET 8 riêng cho LOVERA. Phiên bản này triển khai **F00–F06** theo `LOVERA_FRD_OC1_MVP_v1.1.docx` (Draft, 23/09/2026), đã đối chiếu với bản Project Overview do chủ dự án cung cấp. Backend PIEDTEAM chỉ được dùng để tham khảo cách chia API, Service, Repository; không sao chép nghiệp vụ. Xem [bản đồ nguồn yêu cầu](docs/requirements-map.md) và [API F01–F06](docs/features-f01-f06.md).
 
 ## Kiến trúc và dữ liệu
 
 - **API** nhận HTTP, validation, xác thực phiên, Swagger và trả lỗi JSON.
-- **Service** thực hiện quy tắc F00: đăng ký, OTP, đăng nhập, đăng xuất, hồ sơ.
+- **Service** thực hiện quy tắc F00–F06: xác thực, ghép đôi, ngày yêu, kế hoạch, điểm, trạng thái và kỷ niệm.
 - **Repository** dùng EF Core/Npgsql để đọc và ghi PostgreSQL; migration nằm tại `src/Lovera.Repository/Migrations`.
 - Luồng: client → API → Service → Repository → PostgreSQL → response. SMTP được Service gọi qua `IVerificationMail`.
 
-`users` có email duy nhất, password hash PBKDF2, trạng thái xác thực, tên và đường dẫn/URL avatar. Mỗi user có nhiều `verification_codes` và `sessions` qua `UserId`; code và token chỉ lưu hash. Migration đầu tiên `InitialF00` tạo bảng và chỉ mục. PostgreSQL lưu trong volume `lovera_pgdata`; ảnh avatar tải lên lưu trong volume `lovera_avatars`.
+`users` có email duy nhất, password hash PBKDF2, trạng thái xác thực, tên và đường dẫn/URL avatar. Mỗi user có nhiều `verification_codes` và `sessions` qua `UserId`; code và token chỉ lưu hash. F01–F06 thêm `couples`, `couple_members`, `pairing_invitations`, `gardens`, `point_events`, `date_plans`, `memories`, `connection_statuses`. Migration `FeaturesF01F06` thêm các bảng và chỉ mục. PostgreSQL lưu trong volume `lovera_pgdata`; ảnh avatar tải lên lưu trong volume `lovera_avatars`; ảnh kỷ niệm được lưu trong PostgreSQL.
 
 ## Chạy từ máy mới bằng Docker
 
-Cần Docker Engine/Compose, cổng 5432, 8025 và 8080 còn trống, kết nối Internet để tải image và NuGet khi build. Từ thư mục này:
+Cần Docker Engine/Compose, cổng 5434 (hoặc `POSTGRES_HOST_PORT`), 8025, 1025 và 8080 còn trống, kết nối Internet để tải image và NuGet khi build. Từ thư mục này:
 
 ```sh
 cp .env.example .env
 # Sửa .env: POSTGRES_PASSWORD, OTP_PEPPER thành giá trị ngẫu nhiên riêng.
+# Để dùng F03 AI, cấu hình thêm AI_CHAT_COMPLETIONS_URL, AI_MODEL, AI_API_KEY.
 # Ví dụ tạo giá trị: openssl rand -hex 32
 
 docker compose up -d db mailpit
@@ -50,7 +51,7 @@ DBeaver là **công cụ kết nối và quản trị** PostgreSQL, không phả
 | PUT | `/api/profile/me/avatar` | Bearer | `multipart/form-data`, trường `file`; PNG/JPEG/WebP, tối đa 5MB |
 | GET | `/api/profile/me/avatar` | Bearer | Trả ảnh đã tải lên cho chính chủ tài khoản |
 
-Thêm `Authorization: Bearer <accessToken>` cho endpoint cần phiên. Khi đăng ký, mã OTP 6 số có hạn 10 phút, tối đa 5 lần thử. Nếu thư không đến, dùng endpoint gửi lại; việc gửi lại hết hạn mã cũ. Chỉ email đã xác thực mới đăng nhập và được phát phiên. Phiên dạng token ngẫu nhiên tồn tại 7 ngày, lưu SHA-256 trong database và bị thu hồi ngay khi đăng xuất. Mật khẩu băm PBKDF2-SHA256 với salt riêng, 210.000 vòng. 5 lần sai mật khẩu khóa tài khoản 15 phút; endpoint auth giới hạn 20 request/phút/IP. API trả `code`/`message` rõ ràng: `email_exists` (409), `invalid_credentials` (401), `email_unverified` (403), `invalid_input` (400), `invalid_code` (400), `login_locked` (429). Không ghi OTP, password hoặc token vào log ứng dụng.
+Thêm `Authorization: Bearer <accessToken>` cho endpoint cần phiên. Khi đăng ký, mã OTP 6 số có hạn 10 phút, tối đa 5 lần thử. Nếu thư không đến, dùng endpoint gửi lại; việc gửi lại hết hạn mã cũ. Chỉ email đã xác thực mới đăng nhập và được phát phiên. Phiên dạng token ngẫu nhiên tồn tại 7 ngày, lưu SHA-256 trong database và bị thu hồi ngay khi đăng xuất. Mật khẩu đăng ký dài 6–128 ký tự; mật khẩu băm PBKDF2-SHA256 với salt riêng, 210.000 vòng. 5 lần sai mật khẩu khóa tài khoản 15 phút; endpoint auth giới hạn 20 request/phút/IP. API trả `code`/`message` rõ ràng: `email_exists` (409), `invalid_credentials` (401), `email_unverified` (403), `invalid_input` (400), `invalid_code` (400), `login_locked` (429). Không ghi OTP, password hoặc token vào log ứng dụng.
 
 FRD chỉ yêu cầu cập nhật Avatar mà chưa quy định cách lưu. Backend hỗ trợ tải ảnh trực tiếp vào volume Docker hoặc nhận URL HTTPS từ kho ngoài. `avatarUrl` của ảnh đã tải lên là `/api/profile/me/avatar`; frontend lấy ảnh bằng Bearer token và tạo object URL để hiển thị. `PUT /api/profile/me` là cập nhật đầy đủ: gửi lại `avatarUrl` hiện tại để giữ ảnh, hoặc `null` để xóa. Không có dịch vụ quét nội dung ảnh ở MVP. Khi bổ sung F01, endpoint ghép đôi phải áp dụng policy `VerifiedEmail` (claim lấy từ bản ghi user đã xác thực), đồng thời kiểm tra lại quy tắc cặp đôi trong Service.
 
@@ -58,14 +59,15 @@ FRD chỉ yêu cầu cập nhật Avatar mà chưa quy định cách lưu. Backe
 
 Chạy `dotnet test Lovera.sln`. Các test kiểm tra đăng ký → OTP → đăng nhập → sửa/xem hồ sơ → đăng xuất, email trùng, mật khẩu sai, URL avatar sai, tải và xóa avatar, OTP hết hạn/hết lượt, khóa tạm sau 5 lần sai. Unit test dùng Repository, kho ảnh và SMTP giả nên không cần PostgreSQL. Migration và HTTP đã được xác minh trên PostgreSQL tạm trong phiên bàn giao.
 
-## Phụ thuộc F01–F06 và quyết định còn mở
+## F01–F06
 
-Đề xuất: **F01** trước (cung cấp `Couple_ID` cho F02, F04, F05, F06); tiếp theo **F02**, **F05**, **F04** (sổ điểm và giới hạn); sau đó **F06** (cộng điểm qua F04) và **F03** (tạo/hoàn thành kế hoạch cộng điểm qua F04). Có thể đổi F06 và F03 theo ưu tiên sản phẩm. FRD còn để mở thời hạn pairing code, múi giờ, nguồn địa điểm cho AI, dữ liệu sau unpair và kiểm duyệt ảnh. Cần chốt trước khi triển khai tương ứng. Đã nhận bản xuất Project Overview; các trang con của wiki Lark vẫn chưa truy cập được.
+Chi tiết endpoint, request/response, quy tắc điểm, cấu hình AI và các lựa chọn nghiệp vụ cần chốt nằm trong [docs/features-f01-f06.md](docs/features-f01-f06.md). F03 gọi endpoint Chat Completions tương thích qua HTTPS nếu được cấu hình; nếu thiếu cấu hình, timeout hoặc kết quả không hợp lệ, API trả `status: "fallback"` thay vì lỗi máy chủ. Đây là gợi ý, không đặt chỗ hay thanh toán. Tài liệu FRD cho phép dùng dữ liệu địa điểm từ LLM; địa chỉ và chi phí do AI trả về là ước tính, cần đối chiếu nếu sản phẩm yêu cầu địa điểm đã xác thực.
 
 ### Kết quả xác minh tại thời điểm bàn giao
 
 - Build API và test project: thành công, không có warning/error.
-- xUnit: **7/7 pass**, gồm kiểm thử tạo tài liệu Swagger cho endpoint tải avatar.
-- Migration `InitialF00`: áp dụng thành công lên PostgreSQL 16 tạm; xác nhận ba bảng nghiệp vụ và các chỉ mục.
+- xUnit: **16/16 pass**, gồm luồng F00, quy tắc ngày yêu, giới hạn điểm, trạng thái, kỷ niệm và kế hoạch.
+- Migration `InitialF00` và `FeaturesF01F06`: áp dụng thành công lên PostgreSQL 16 tạm.
 - HTTP thử nghiệm với SMTP giả: register 202, duplicate 409, login trước xác thực 403, password sai 401, verify 200, login 200, profile GET/PUT 200, logout 204, token cũ dùng lại 401; Swagger 200 và input sai 400. Upload avatar 200, GET ảnh có Bearer 200, GET không Bearer 401, xóa ảnh 200 và GET lại 404.
-- `docker compose config --quiet`: thành công. Chưa chạy container thật vì Docker daemon trên máy kiểm thử không hoạt động.
+- HTTP thử nghiệm trên PostgreSQL 16 tạm: health và Swagger 200; tạo mã và ghép đôi 200; ngày yêu đồng bộ hai tài khoản; check-in +5; trạng thái bận hiển thị cho đối tác; lưu/xem kỷ niệm; F03 fallback ngân sách thấp; hủy ghép đôi 204 và quyền truy cập dữ liệu cũ bị chặn. F03 tạo/lưu/hoàn thành kế hoạch và cộng tổng 25 điểm đã được thử với AI giả cục bộ.
+- Docker Compose chưa chạy container thật trong phiên này vì Docker daemon trên máy kiểm thử không hoạt động. Trước khi chạy trên máy mới, cần điền `.env` riêng.
