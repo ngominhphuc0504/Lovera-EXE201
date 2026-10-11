@@ -10,6 +10,7 @@ namespace Lovera.Api;
 [Route("api/auth")]
 public sealed class AuthController(AuthService service) : ControllerBase
 {
+    //Toi la Thien
     [HttpPost("register"), EnableRateLimiting("auth")]
     public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct) { await service.Register(request, ct); return Accepted(new { message = "Đã gửi mã xác thực tới email. Mã có hiệu lực 10 phút." }); }
     [HttpPost("resend-verification"), EnableRateLimiting("auth")]
@@ -54,4 +55,5 @@ public sealed class ProfileController(AuthService service) : ControllerBase
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         return File(avatar.Bytes, avatar.ContentType);
     }
+    
 }
