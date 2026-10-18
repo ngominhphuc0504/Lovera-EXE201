@@ -46,7 +46,6 @@ export default function App() {
 
   // Interaction feedback states
   const [isWatering, setIsWatering] = useState(false);
-  const [pingSent, setPingSent] = useState(false);
   const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [deviceFrame, setDeviceFrame] = useState(true);
@@ -87,26 +86,6 @@ export default function App() {
   // -----------------------------------------------------------------
   // INTERACTION HANDLERS
   // -----------------------------------------------------------------
-  const handleSendLovePing = (e?: React.MouseEvent) => {
-    playSound('ping');
-    triggerHeartBurst(e);
-    setPingSent(true);
-    addPoints(5, 'Gửi Love Ping rung chuông', couple.userA.name);
-
-    // Add simulated notification for partner
-    const newNotif = {
-      id: `notif_${Date.now()}`,
-      title: `${couple.userA.name} vừa gửi Love Ping!`,
-      message: '❤️ Đối phương đang nhớ bạn rất nhiều!',
-      time: 'Vừa xong',
-      type: 'ping' as const,
-      read: false
-    };
-    setNotifications(prev => [newNotif, ...prev]);
-
-    setTimeout(() => setPingSent(false), 3000);
-  };
-
   const handleWaterGarden = (e?: React.MouseEvent) => {
     playSound('water');
     setIsWatering(true);
@@ -456,8 +435,6 @@ export default function App() {
                 playSound('click');
                 setIsLoveDayModalOpen(true);
               }}
-              onSendLovePing={handleSendLovePing}
-              pingSent={pingSent}
             />
           )}
 

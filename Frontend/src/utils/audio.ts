@@ -1,35 +1,11 @@
 // Web Audio Synthesizer for gentle romantic micro-interactions
-export const playSound = (type: 'chime' | 'success' | 'water' | 'ping' | 'click' | 'error') => {
+export const playSound = (type: 'chime' | 'success' | 'water' | 'click' | 'error') => {
   try {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
 
-    if (type === 'ping') {
-      // Gentle double heart-ping chime
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      osc1.type = 'sine';
-      osc2.type = 'triangle';
-      osc1.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
-      osc1.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
-      osc2.frequency.setValueAtTime(880, ctx.currentTime + 0.12);
-      osc2.frequency.exponentialRampToValueAtTime(1174.66, ctx.currentTime + 0.3); // D6
-
-      gain.gain.setValueAtTime(0.12, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.start();
-      osc2.start(ctx.currentTime + 0.1);
-      osc1.stop(ctx.currentTime + 0.35);
-      osc2.stop(ctx.currentTime + 0.35);
-    } else if (type === 'water') {
+    if (type === 'water') {
       // Gentle water drop sound
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();

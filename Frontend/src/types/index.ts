@@ -102,6 +102,6 @@ export interface AppNotification {
   title: string;
   message: string;
   time: string;
-  type: 'ping' | 'garden' | 'planner' | 'status';
+  type: 'garden' | 'planner' | 'status';
   read: boolean;
 }

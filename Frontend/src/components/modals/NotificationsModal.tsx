@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Bell, Heart, Droplets, Sparkles, CheckCheck } from 'lucide-react';
+import { X, Bell, Droplets, Sparkles, CheckCheck } from 'lucide-react';
 import { AppNotification } from '../../types';
 
 interface NotificationsModalProps {
@@ -15,8 +15,6 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
 }) => {
   const getIcon = (type: AppNotification['type']) => {
     switch (type) {
-      case 'ping':
-        return <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />;
       case 'garden':
         return <Droplets className="w-4 h-4 text-emerald-500 fill-emerald-100" />;
       case 'planner':

@@ -155,24 +155,9 @@ export const INITIAL_POINT_HISTORY: PointHistoryItem[] = [
     timestamp: 'Hôm nay, 08:00',
     by: 'Sam'
   },
-  {
-    id: 'pt_4',
-    action: 'Gửi Love Ping yêu thương',
-    points: 5,
-    timestamp: 'Hôm nay, 09:12',
-    by: 'Alex'
-  }
 ];
 
 export const INITIAL_NOTIFICATIONS: AppNotification[] = [
-  {
-    id: 'notif_1',
-    title: 'Sam vừa gửi Love Ping!',
-    message: '❤️ Sam đang nhớ bạn rất nhiều và muốn nghe giọng bạn.',
-    time: '10 phút trước',
-    type: 'ping',
-    read: false
-  },
   {
     id: 'notif_2',
     title: 'Vườn hoa đã được tưới',
