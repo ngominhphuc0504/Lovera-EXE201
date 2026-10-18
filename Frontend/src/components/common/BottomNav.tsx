@@ -6,14 +6,12 @@ interface BottomNavProps {
   currentScreen: Screen;
   onNavigate: (screen: Screen) => void;
   gardenNotification?: boolean;
-  isHome?: boolean;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   currentScreen,
   onNavigate,
   gardenNotification = true,
-  isHome = false,
 }) => {
   const navItems: { id: Screen; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'home', label: 'Home', icon: Heart },
@@ -25,7 +23,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   return (
     <nav 
       aria-label="Thanh điều hướng chính"
-      className={`${isHome ? 'relative shrink-0 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))]' : 'fixed sm:absolute py-1.5'} bottom-0 inset-x-0 bg-white/95 backdrop-blur-lg border-t border-rose-100/90 px-3 flex items-center justify-around z-30 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]`}
+      className="fixed sm:absolute bottom-0 inset-x-0 bg-white/95 backdrop-blur-lg border-t border-rose-100/90 px-3 py-1.5 flex items-center justify-around z-30 shadow-[0_-4px_20px_rgba(0,0,0,0.03)]"
     >
       {navItems.map((item) => {
         const Icon = item.icon;

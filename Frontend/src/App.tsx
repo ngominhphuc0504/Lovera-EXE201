@@ -273,10 +273,9 @@ export default function App() {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const isTabScreen = ['home', 'planner', 'garden', 'profile'].includes(currentScreen);
-  const isHomeScreen = currentScreen === 'home';
 
   return (
-    <div className={`${isHomeScreen ? 'h-dvh min-h-0 justify-start' : 'min-h-screen justify-center'} bg-stone-100 flex flex-col items-center font-sans antialiased text-stone-800 p-0 sm:p-4`}>
+    <div className="min-h-screen bg-stone-100 flex flex-col items-center justify-center font-sans antialiased text-stone-800 p-0 sm:p-4">
       
       {/* Top Device Bar (Desktop view controls) */}
       <aside aria-label="Khung thiết bị & Điều khiển thử nghiệm" className="hidden sm:flex items-center justify-between w-full max-w-[420px] mb-2 px-2 text-xs text-stone-500">
@@ -297,11 +296,7 @@ export default function App() {
 
       {/* Main Mobile App Container */}
       <main
-        className={`w-full max-w-[420px] bg-white relative flex flex-col overflow-hidden transition-all duration-300 ${
-          isHomeScreen
-            ? 'flex-1 min-h-0 pt-[env(safe-area-inset-top)]'
-            : 'min-h-[660px] h-[92vh] max-h-[890px]'
-        } ${
+        className={`w-full max-w-[420px] bg-white min-h-[660px] h-[92vh] max-h-[890px] relative flex flex-col overflow-hidden transition-all duration-300 ${
           deviceFrame
             ? 'sm:rounded-[44px] sm:shadow-2xl sm:border-[10px] sm:border-stone-900 ring-1 ring-stone-900/10'
             : 'rounded-none shadow-none border-0'
@@ -334,7 +329,7 @@ export default function App() {
         )}
 
         {/* Scrollable Screen Content */}
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden w-full max-w-full bg-gradient-to-b from-stone-50/70 via-rose-50/20 to-purple-50/30 relative">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full bg-gradient-to-b from-stone-50/70 via-rose-50/20 to-purple-50/30 relative">
           
           {/* Welcome Screen (Lựa chọn Đăng Ký hoặc Đăng Nhập) */}
           {currentScreen === 'welcome' && (
@@ -448,6 +443,14 @@ export default function App() {
           {currentScreen === 'home' && (
             <HomeScreen
               couple={couple}
+              onNavigateToPlanner={() => {
+                playSound('click');
+                setCurrentScreen('planner');
+              }}
+              onNavigateToGarden={() => {
+                playSound('click');
+                setCurrentScreen('garden');
+              }}
               onOpenStatusModal={() => {
                 playSound('click');
                 setIsStatusModalOpen(true);
@@ -457,6 +460,8 @@ export default function App() {
                 setIsLoveDayModalOpen(true);
               }}
               onSendLovePing={handleSendLovePing}
+              onWaterGarden={handleWaterGarden}
+              isWatering={isWatering}
               pingSent={pingSent}
             />
           )}
@@ -499,7 +504,6 @@ export default function App() {
         {isTabScreen && (
           <BottomNav
             currentScreen={currentScreen}
-            isHome={currentScreen === 'home'}
             onNavigate={(scr) => {
               playSound('click');
               setCurrentScreen(scr);
