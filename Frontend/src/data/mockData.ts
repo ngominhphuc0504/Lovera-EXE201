@@ -1,8 +1,8 @@
-import { ConnectionStatusOption, CoupleData, DatePlan, PointHistoryItem, AppNotification } from '../types';
+import { ConnectionActivityOption, ConnectionStatusOption, CoupleData, DatePlan, PointHistoryItem, AppNotification } from '../types';
 import avatarAlex from '../assets/images/partner_avatar_alex_1790144456462.jpg';
 import avatarSam from '../assets/images/partner_avatar_sam_1790144470464.jpg';
 
-export const INITIAL_STATUS_OPTIONS: ConnectionStatusOption[] = [
+export const INITIAL_ACTIVITY_OPTIONS: ConnectionActivityOption[] = [
   {
     type: 'Studying',
     label: 'Đang học bài',
@@ -37,13 +37,30 @@ export const INITIAL_STATUS_OPTIONS: ConnectionStatusOption[] = [
     icon: '☕',
     description: 'Thư giãn, đọc sách hoặc thể thao',
     badgeColor: 'bg-rose-50 text-rose-700 border-rose-200'
-  },
+  }
+];
+
+export const CONNECTION_STATUS_OPTIONS: ConnectionStatusOption[] = [
   {
     type: 'Available',
     label: 'Đang rảnh',
     icon: '✨',
-    description: 'Sẵn sàng tâm sự cùng người yêu',
+    description: 'Sẵn sàng trò chuyện',
     badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  },
+  {
+    type: 'Busy',
+    label: 'Đang bận',
+    icon: '⏳',
+    description: 'Hiện chưa tiện trả lời',
+    badgeColor: 'bg-amber-50 text-amber-700 border-amber-200'
+  },
+  {
+    type: 'Away',
+    label: 'Tạm vắng',
+    icon: '🌙',
+    description: 'Tạm thời không trực tuyến',
+    badgeColor: 'bg-stone-100 text-stone-600 border-stone-200'
   }
 ];
 
@@ -59,7 +76,6 @@ export const INITIAL_COUPLE: CoupleData = {
     avatar: avatarAlex,
     email: 'alex@lovera.app',
     status: 'Available',
-    availableAt: 'Ngay bây giờ',
     isOnline: true,
     batteryLevel: 88
   },
@@ -68,8 +84,8 @@ export const INITIAL_COUPLE: CoupleData = {
     name: 'Sam',
     avatar: avatarSam,
     email: 'sam@lovera.app',
-    status: 'Studying',
-    availableAt: '16:30',
+    status: 'Busy',
+    activity: 'Studying',
     isOnline: false,
     batteryLevel: 62
   }
