@@ -13,9 +13,19 @@ import {
   CheckCircle2,
   Award
 } from 'lucide-react';
-import { CoupleData } from '../../types';
+import { CoupleData, ConnectionStatusType } from '../../types';
+import { INITIAL_ACTIVITY_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
 import gardenBanner from '../../assets/images/love_garden_blooms_1790144486251.jpg';
+
+const STATUS_LABELS: Record<ConnectionStatusType, string> = {
+  Available: 'Đang rảnh',
+  Busy: 'Đang bận',
+  Away: 'Tạm vắng',
+};
+
+const getActivityLabel = (activity?: string) =>
+  INITIAL_ACTIVITY_OPTIONS.find(option => option.type === activity)?.label ?? 'Chưa chọn hoạt động';
 
 interface HomeScreenProps {
   couple: CoupleData;
@@ -89,7 +99,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </div>
               <p className="text-[10px] text-stone-500 flex items-center gap-1 mt-0.5">
                 <Smile className="w-2.5 h-2.5 text-rose-400" />
-                <span>{userA.status === 'Available' ? 'Đang rảnh' : userA.status}</span>
+                <span>{STATUS_LABELS[userA.status]}</span>
               </p>
             </div>
           </div>
@@ -130,14 +140,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   </span>
                 ) : (
                   <span className="text-[9px] font-semibold text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
-                    {userB.availableAt ? `Rảnh: ${userB.availableAt}` : 'Offline'}
+                    Offline
                   </span>
                 )}
                 <h3 className="font-bold text-xs text-stone-900 leading-tight">{userB.name}</h3>
               </div>
               <p className="text-[10px] text-stone-500 flex items-center justify-end gap-0.5 mt-0.5">
                 <Flame className="w-2.5 h-2.5 text-amber-500" />
-                <span>{userB.status}</span>
+                <span>{STATUS_LABELS[userB.status]}</span>
               </p>
             </div>
           </div>
@@ -253,19 +263,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <span className="text-[10px] text-stone-400 font-semibold block mb-0.5">Bạn ({userA.name}):</span>
             <div className="font-bold text-stone-900 flex items-center gap-1">
               <span>✨</span>
-              <span>{userA.status === 'Available' ? 'Đang rảnh' : userA.status}</span>
+              <span>{STATUS_LABELS[userA.status]}</span>
             </div>
-            <span className="text-[10px] text-emerald-600 font-medium">Sẵn sàng trò chuyện</span>
+            <span className="text-[10px] text-emerald-600 font-medium">
+              {getActivityLabel(userA.activity)}
+            </span>
           </div>
 
           <div className="bg-purple-50/50 p-3 rounded-2xl border border-purple-100/80">
             <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{userB.name}:</span>
             <div className="font-bold text-stone-900 flex items-center gap-1">
               <span>📚</span>
-              <span>{userB.status}</span>
+              <span>{STATUS_LABELS[userB.status]}</span>
             </div>
             <span className="text-[10px] text-purple-700 font-medium">
-              {userB.availableAt ? `Dự kiến: ${userB.availableAt}` : 'Đang bận việc'}
+              {getActivityLabel(userB.activity)}
             </span>
           </div>
         </div>

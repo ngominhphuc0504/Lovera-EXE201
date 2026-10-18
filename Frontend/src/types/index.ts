@@ -21,18 +21,27 @@ export interface Partner {
   avatar: string;
   email: string;
   status: ConnectionStatusType;
-  availableAt?: string;
+  activity?: ConnectionActivityType;
   isOnline: boolean;
   batteryLevel?: number;
 }
 
-export type ConnectionStatusType = 
+export type ConnectionStatusType = 'Available' | 'Busy' | 'Away';
+
+export type ConnectionActivityType =
   | 'Studying'
   | 'Working'
   | 'Sleeping'
   | 'On the road'
-  | 'Personal time'
-  | 'Available';
+  | 'Personal time';
+
+export interface ConnectionActivityOption {
+  type: ConnectionActivityType;
+  label: string;
+  icon: string;
+  description: string;
+  badgeColor: string;
+}
 
 export interface ConnectionStatusOption {
   type: ConnectionStatusType;
