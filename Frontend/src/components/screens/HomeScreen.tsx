@@ -5,7 +5,6 @@ import {
   Clock, 
   Smile, 
   Flame, 
-  Send, 
   Edit3,
   Award
 } from 'lucide-react';
@@ -26,16 +25,12 @@ interface HomeScreenProps {
   couple: CoupleData;
   onOpenStatusModal: () => void;
   onOpenLoveDayModal: () => void;
-  onSendLovePing: () => void;
-  pingSent: boolean;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   couple,
   onOpenStatusModal,
   onOpenLoveDayModal,
-  onSendLovePing,
-  pingSent,
 }) => {
   const { userA, userB, startDate } = couple;
   const totalDays = calculateTotalDays(startDate);
@@ -132,27 +127,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         </div>
 
-        {/* Quick Send Love Ping CTA Row */}
-        <div className="mt-2.5 pt-2 border-t border-rose-100/70 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-1.5 text-stone-600">
-            <span className="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
-            <span className="text-[11px] font-medium text-stone-600">
-              {pingSent ? '💌 Đã gửi: "Nhớ em rất nhiều!"' : 'Chia sẻ nhịp đập yêu thương'}
-            </span>
-          </div>
-
-          <button
-            onClick={onSendLovePing}
-            className={`min-h-[40px] px-3.5 py-1.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition-all active:scale-95 shadow-xs ${
-              pingSent
-                ? 'bg-emerald-500 text-white shadow-emerald-500/20'
-                : 'bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white shadow-rose-500/20'
-            }`}
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>{pingSent ? 'Đã gửi Ping!' : 'Gửi Love Ping'}</span>
-          </button>
-        </div>
       </section>
 
       {/* ------------------------------------------------------------- */}
