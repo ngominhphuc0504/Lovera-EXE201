@@ -6,3 +6,4 @@
 TestResults/
 *.user
 **/appsettings.Development.json
+private-accounts.json

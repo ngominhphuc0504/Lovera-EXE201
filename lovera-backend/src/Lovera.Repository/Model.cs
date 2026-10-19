@@ -15,6 +15,8 @@ public sealed class UserAccount
     public DateTime? LoginLockedUntilUtc { get; set; }
     public List<VerificationCode> VerificationCodes { get; set; } = [];
     public List<UserSession> Sessions { get; set; } = [];
+    
+    public string? RecoveryCodeHash { get; set; }
 }
 public sealed class VerificationCode
 {
@@ -63,5 +65,9 @@ public sealed class LoveraDbContext(DbContextOptions<LoveraDbContext> options) :
         b.Entity<DatePlan>(x => { x.ToTable("date_plans"); x.HasKey(p => p.Id); x.Property(p => p.Location).HasMaxLength(160).IsRequired(); x.Property(p => p.FoodPreference).HasMaxLength(300); x.Property(p => p.ActivityPreference).HasMaxLength(300); x.Property(p => p.ItemsJson).HasColumnType("jsonb").IsRequired(); x.Property(p => p.Budget).HasPrecision(12, 2); x.Property(p => p.EstimatedTotal).HasPrecision(12, 2); x.HasIndex(p => new { p.CoupleId, p.CreatedAtUtc }); x.HasOne(p => p.Couple).WithMany().HasForeignKey(p => p.CoupleId).OnDelete(DeleteBehavior.Cascade); });
         b.Entity<LoveMemory>(x => { x.ToTable("memories"); x.HasKey(m => m.Id); x.Property(m => m.Text).HasMaxLength(5000); x.Property(m => m.ImageContentType).HasMaxLength(40); x.HasIndex(m => new { m.CoupleId, m.CreatedAtUtc }); x.HasOne(m => m.Couple).WithMany().HasForeignKey(m => m.CoupleId).OnDelete(DeleteBehavior.Cascade); });
         b.Entity<ConnectionStatus>(x => { x.ToTable("connection_statuses"); x.HasKey(s => s.UserId); x.Property(s => s.Kind).HasMaxLength(32).IsRequired(); x.HasOne(s => s.User).WithMany().HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade); });
+        b.Entity<UserAccount>()
+            .Property(u => u.RecoveryCodeHash)
+            .HasMaxLength(64)
+            .IsConcurrencyToken();
     }
 }

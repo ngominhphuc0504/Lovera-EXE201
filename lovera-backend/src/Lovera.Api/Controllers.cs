@@ -8,14 +8,21 @@ using Microsoft.AspNetCore.RateLimiting;
 namespace Lovera.Api;
 [ApiController]
 [Route("api/auth")]
-public sealed class AuthController(AuthService service) : ControllerBase
+public sealed class AuthController(AuthService service, IConfiguration configuration) : ControllerBase
 {
     [HttpPost("register"), EnableRateLimiting("auth")]
-    public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct) { await service.Register(request, ct); return Accepted(new { message = "Đã gửi mã xác thực tới email. Mã có hiệu lực 10 phút." }); }
-    [HttpPost("resend-verification"), EnableRateLimiting("auth")]
-    public async Task<IActionResult> Resend(EmailRequest request, CancellationToken ct) { await service.Resend(request.Email, ct); return Accepted(new { message = "Nếu tài khoản cần xác thực, mã mới đã được gửi." }); }
-    [HttpPost("verify-email"), EnableRateLimiting("auth")]
-    public async Task<IActionResult> Verify(VerifyRequest request, CancellationToken ct) { await service.Verify(request, ct); return Ok(new { message = "Email đã được xác thực." }); }
+    public async Task<IActionResult> Register(RegisterRequest request, CancellationToken ct)
+    {
+        if (!configuration.GetValue("Auth:AllowPublicRegistration", true))
+            throw new AppProblem(403, "registration_disabled", "Hệ thống hiện chỉ cho phép tài khoản được cấp sẵn.");
+        var recoveryCode = await service.Register(request, ct);
+        Response.Headers["Cache-Control"] = "no-store";
+        return Ok(new
+        {
+            message = "Đăng ký thành công. Hãy lưu mã khôi phục.",
+            recoveryCode
+        });
+    }
     [HttpPost("login"), EnableRateLimiting("auth")]
     public async Task<ActionResult<LoginResponse>> Login(LoginRequest request, CancellationToken ct) => Ok(await service.Login(request, ct));
     [HttpPost("logout"), Authorize]
@@ -25,6 +32,19 @@ public sealed class AuthController(AuthService service) : ControllerBase
         var session = await service.Authenticate(token, ct) ?? throw new AppProblem(401, "unauthorized", "Phiên không hợp lệ.");
         await service.Logout(session, ct);
         return NoContent();
+    }
+    
+    [HttpPost("reset-password"), EnableRateLimiting("auth")]
+    public async Task<IActionResult> ResetPassword(
+        ResetPasswordRequest request, CancellationToken ct)
+    {
+        var recoveryCode = await service.ResetPassword(request, ct);
+        Response.Headers["Cache-Control"] = "no-store";
+        return Ok(new
+        {
+            message = "Đã đặt mật khẩu mới. Hãy lưu mã khôi phục mới.",
+            recoveryCode
+        });
     }
 }
 public sealed record EmailRequest([Required, EmailAddress] string Email);
@@ -53,5 +73,29 @@ public sealed class ProfileController(AuthService service) : ControllerBase
         Response.Headers["Cache-Control"] = "private, no-store";
         Response.Headers["X-Content-Type-Options"] = "nosniff";
         return File(avatar.Bytes, avatar.ContentType);
+    }
+    
+    [HttpDelete("me")]
+    public async Task<IActionResult> DeleteMe(
+        [FromBody] DeleteAccountRequest request,
+        CancellationToken ct)
+    {
+        await service.DeleteAccount(UserId, request.Password, ct);
+        return NoContent();
+    }
+    
+    [HttpPost("me/recovery-code"), EnableRateLimiting("auth")]
+    public async Task<IActionResult> CreateRecoveryCode(
+        CreateRecoveryCodeRequest request, CancellationToken ct)
+    {
+        var recoveryCode = await service.CreateRecoveryCode(
+            UserId, request.CurrentPassword, ct);
+
+        Response.Headers["Cache-Control"] = "no-store";
+        return Ok(new
+        {
+            message = "Hãy lưu mã khôi phục mới. Mã cũ đã hết hiệu lực.",
+            recoveryCode
+        });
     }
 }

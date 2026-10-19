@@ -7,10 +7,13 @@ public interface IUsersRepository
     Task<UserAccount?> FindById(Guid id, CancellationToken ct);
     Task<UserSession?> FindSession(string tokenHash, CancellationToken ct);
     Task<VerificationCode?> LatestCode(Guid userId, CancellationToken ct);
+    Task<bool> HasCoupleHistory(Guid userId, CancellationToken ct);
+    void RemoveUser(UserAccount user);
     void AddUser(UserAccount user);
     void AddCode(VerificationCode code);
     void AddSession(UserSession session);
     Task Save(CancellationToken ct);
+    Task RevokeSessions(Guid userId, CancellationToken ct);
 }
 public sealed class UsersRepository(LoveraDbContext db) : IUsersRepository
 {
@@ -18,8 +21,23 @@ public sealed class UsersRepository(LoveraDbContext db) : IUsersRepository
     public Task<UserAccount?> FindById(Guid id, CancellationToken ct) => db.Users.SingleOrDefaultAsync(x => x.Id == id, ct);
     public Task<UserSession?> FindSession(string tokenHash, CancellationToken ct) => db.Sessions.Include(x => x.User).SingleOrDefaultAsync(x => x.TokenHash == tokenHash, ct);
     public Task<VerificationCode?> LatestCode(Guid userId, CancellationToken ct) => db.VerificationCodes.Where(x => x.UserId == userId && x.ConsumedAtUtc == null).OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(ct);
+    
+    
+    public Task<bool> HasCoupleHistory(Guid userId, CancellationToken ct) =>
+        db.CoupleMembers.AnyAsync(x => x.UserId == userId, ct);
+    public void RemoveUser(UserAccount user) => db.Users.Remove(user);
     public void AddUser(UserAccount user) => db.Users.Add(user);
     public void AddCode(VerificationCode code) => db.VerificationCodes.Add(code);
     public void AddSession(UserSession session) => db.Sessions.Add(session);
     public Task Save(CancellationToken ct) => db.SaveChangesAsync(ct);
+    
+    public async Task RevokeSessions(Guid userId, CancellationToken ct)
+    {
+        var sessions = await db.Sessions
+            .Where(s => s.UserId == userId)
+            .ToListAsync(ct);
+
+        db.Sessions.RemoveRange(sessions);
+    }
+    
 }

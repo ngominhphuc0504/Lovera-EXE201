@@ -35,6 +35,10 @@ This is the same API, Service, Repository solution used for local development. D
 
 Add sensitive values in the platform's secret/environment settings, never in `appsettings.json`, a repository, or a Docker build argument. The previously shared Gmail and Cloudinary credentials must be rotated before any public deployment.
 
+## Tài khoản cấp sẵn
+
+Nếu triển khai với 10 tài khoản do chủ dự án cấp, chạy migration trước rồi dùng công cụ nhập trong [hướng dẫn tài khoản](docs/accounts-and-docker.md) với connection string của môi trường triển khai. Không upload file JSON chứa mật khẩu vào Git hay Docker image. Sau khi nhập xong, xóa bản sao tạm của file theo chính sách lưu trữ của nhóm. Có thể đặt `Auth__AllowPublicRegistration=false` trong biến môi trường của API để không nhận đăng ký tự do. Việc nhập tài khoản đánh dấu email đã xác thực; đây là thao tác quản trị có chủ đích.
+
 ## API checks
 
 - Set the service's HTTP health check path to `/health/ready`. It returns 200 only when the API can query PostgreSQL.
