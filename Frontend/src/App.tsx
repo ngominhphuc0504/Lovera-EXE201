@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType } from './types';
+import { Screen, CoupleData, DatePlan, DateType, ConnectionStatusType } from './types';
 import { 
   INITIAL_COUPLE, 
   INITIAL_DATE_PLANS, 
@@ -207,13 +207,13 @@ export default function App() {
   // -----------------------------------------------------------------
   // CONNECTION STATUS & LOVE DAY UPDATES
   // -----------------------------------------------------------------
-  const handleSaveStatus = (status: ConnectionStatusType, activity?: ConnectionActivityType) => {
+  const handleSaveStatus = (status: ConnectionStatusType, availableAt: string) => {
     setCouple(prev => ({
       ...prev,
       userA: {
         ...prev.userA,
         status,
-        activity
+        availableAt: availableAt ? `Rảnh lúc ${availableAt}` : 'Ngay bây giờ'
       }
     }));
     setIsStatusModalOpen(false);
@@ -496,7 +496,7 @@ export default function App() {
         {isStatusModalOpen && (
           <StatusModal
             currentStatus={couple.userA.status}
-            currentActivity={couple.userA.activity}
+            currentAvailableAt={couple.userA.availableAt}
             onClose={() => setIsStatusModalOpen(false)}
             onSave={handleSaveStatus}
           />
