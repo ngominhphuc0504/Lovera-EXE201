@@ -9,29 +9,36 @@ namespace Lovera.Tests;
 public sealed class FeatureFlowTests
 {
     [Fact]
-    public async Task Pairing_requires_verified_email_and_rejects_expired_code()
+    public async Task Pairing_allows_unverified_user_and_rejects_expired_code()
     {
         var repo = new Mock<IFeatureRepository>();
         var clock = new FakeClock();
-        var a = Guid.NewGuid();
-        var b = Guid.NewGuid();
-        var users = new Dictionary<Guid, UserAccount>
-        {
-            [a] = new() { Id = a, EmailVerified = false },
-            [b] = new() { Id = b, EmailVerified = true }
-        };
-        repo.Setup(r => r.User(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((Guid id, CancellationToken _) => users[id]);
-        var service = new CoupleService(repo.Object, clock, TimeZoneInfo.Utc);
-        Assert.Equal("email_unverified", (await Assert.ThrowsAsync<AppProblem>(() =>
-            service.CreateInvitation(a, 24, default))).Code);
+        var userId = Guid.NewGuid();
 
-        users[a].EmailVerified = true;
-        const string code = "AABBCCDDEEFF";
-        repo.Setup(r => r.Invitation(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new PairingInvitation { CreatorUserId = a, ExpiresAtUtc = clock.UtcNow.AddSeconds(-1) });
-        Assert.Equal("pairing_code_expired", (await Assert.ThrowsAsync<AppProblem>(() =>
-            service.Join(b, code, default))).Code);
+        repo.Setup(r => r.User(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UserAccount
+            {
+                Id = userId,
+                EmailVerified = false
+            });
+
+        repo.Setup(r => r.Invitation(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PairingInvitation
+            {
+                CreatorUserId = Guid.NewGuid(),
+                ExpiresAtUtc = clock.UtcNow.AddSeconds(-1)
+            });
+
+        var service = new CoupleService(repo.Object, clock, TimeZoneInfo.Utc);
+
+        var expired = await Assert.ThrowsAsync<AppProblem>(() =>
+            service.Join(userId, "AABBCCDDEEFF", default));
+        Assert.Equal("pairing_code_expired", expired.Code);
+
+        var missingUser = await Assert.ThrowsAsync<AppProblem>(() =>
+            service.Join(Guid.NewGuid(), "AABBCCDDEEFF", default));
+        Assert.Equal("user_not_found", missingUser.Code);
     }
 
     [Fact]

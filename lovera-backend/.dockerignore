@@ -4,3 +4,4 @@
 .env
 NuGet.Config
 **/appsettings.Development.json
+private-accounts.json

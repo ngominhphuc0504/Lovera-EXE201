@@ -50,10 +50,14 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o => { o.SwaggerDoc("v1", new OpenApiInfo { Title = "LOVERA APIs", Version = "v1" }); o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "Opaque", Description = "Token từ /api/auth/login" }); o.AddSecurityRequirement(new OpenApiSecurityRequirement { [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = [] }); });
 builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
 var app = builder.Build();
-if (builder.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
+// Check PostgreSQL before Kestrel opens Swagger or any API endpoint.
+await using (var scope = app.Services.CreateAsyncScope())
 {
-    await using var scope = app.Services.CreateAsyncScope();
-    await scope.ServiceProvider.GetRequiredService<LoveraDbContext>().Database.MigrateAsync();
+    var db = scope.ServiceProvider.GetRequiredService<LoveraDbContext>();
+    if (builder.Configuration.GetValue<bool>("Database:ApplyMigrationsOnStartup"))
+        await db.Database.MigrateAsync();
+    if (!builder.Configuration.GetValue<bool>("Database:SkipStartupCheck") && !await db.Database.CanConnectAsync())
+        throw new InvalidOperationException("Không kết nối được PostgreSQL. Hãy bật Docker Compose service db và kiểm tra ConnectionStrings:Default.");
 }
 app.UseRouting();
 app.UseCors("Frontend");

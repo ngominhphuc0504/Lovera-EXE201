@@ -27,6 +27,7 @@ services:
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
       Otp__Pepper: ${OTP_PEPPER}
+      Auth__AllowPublicRegistration: ${ALLOW_PUBLIC_REGISTRATION:-true}
       Pairing__CodeHours: ${PAIRING_CODE_HOURS:-24}
       TimeZone__Id: ${TIME_ZONE_ID:-Asia/Ho_Chi_Minh}
       Ai__ChatCompletionsUrl: ${AI_CHAT_COMPLETIONS_URL:-}
@@ -55,6 +56,19 @@ services:
       interval: 10s
       timeout: 3s
       retries: 12
+  accounts:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    profiles: ["tools"]
+    working_dir: /app
+    volumes:
+      - .:/app
+    stdin_open: true
+    environment:
+      ConnectionStrings__Default: Host=db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["dotnet", "run", "--project", "tools/Lovera.Accounts", "--no-launch-profile"]
   migrate:
     image: mcr.microsoft.com/dotnet/sdk:8.0
     profiles: ["tools"]

@@ -16,7 +16,7 @@ public sealed record UnpairRequest(bool Confirmed);
 public sealed record SetLoveStartRequest(DateOnly StartDate);
 
 [ApiController]
-[Authorize(Policy = "VerifiedEmail")]
+[Authorize]
 [Route("api/couples")]
 public sealed class CouplesController(CoupleService couples, IConfiguration config) : LoveraController
 {

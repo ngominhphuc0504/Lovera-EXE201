@@ -23,23 +23,43 @@ public sealed class AuthFlowTests
         Assert.NotNull(repo.User);
     }
     [Fact]
-    public async Task Register_verify_login_profile_logout_flow()
+    public async Task Register_login_profile_logout_without_otp()
     {
-        var repo = new MemoryUsers(); var mail = new MemoryMail(); var clock = new TestClock();
-        var service = new AuthService(repo, mail, clock, new MemoryAvatars(), new string('p', 32));
-        await service.Register(new("A@Example.com", "long-secure-password", " Alice "), default);
-        Assert.Equal("a@example.com", mail.Address);
-        Assert.NotEqual("long-secure-password", repo.User!.PasswordHash);
+        var repo = new MemoryUsers();
+        var mail = new MemoryMail();
+        var clock = new TestClock();
+        var service = new AuthService(
+            repo, mail, clock, new MemoryAvatars(), new string('p', 32));
+
+        await service.Register(
+            new("A@Example.com", "long-secure-password", " Alice "), default);
+
+        Assert.Equal("a@example.com", repo.User!.Email);
+        Assert.NotEqual("long-secure-password", repo.User.PasswordHash);
         Assert.False(repo.User.EmailVerified);
-        var blocked = await Assert.ThrowsAsync<AppProblem>(() => service.Login(new("a@example.com", "long-secure-password"), default));
-        Assert.Equal("email_unverified", blocked.Code);
-        await service.Verify(new("a@example.com", mail.Code!), default);
-        var login = await service.Login(new("a@example.com", "long-secure-password"), default);
-        Assert.Equal(repo.User.Id, (await service.Authenticate(login.AccessToken, default))!.UserId);
-        var profile = await service.UpdateProfile(repo.User.Id, new("Alice B", "https://example.com/avatar.png"), default);
-        Assert.Equal("Alice B", (await service.GetProfile(repo.User.Id, default)).DisplayName);
+        Assert.Null(mail.Address); // Đăng ký không gửi email/OTP
+
+        var login = await service.Login(
+            new("a@example.com", "long-secure-password"), default);
+
+        Assert.Equal(
+            repo.User.Id,
+            (await service.Authenticate(login.AccessToken, default))!.UserId);
+
+        var profile = await service.UpdateProfile(
+            repo.User.Id,
+            new("Alice B", "https://example.com/avatar.png"),
+            default);
+
+        Assert.Equal(
+            "Alice B",
+            (await service.GetProfile(repo.User.Id, default)).DisplayName);
         Assert.Equal("https://example.com/avatar.png", profile.AvatarUrl);
-        await service.Logout((await service.Authenticate(login.AccessToken, default))!, default);
+
+        await service.Logout(
+            (await service.Authenticate(login.AccessToken, default))!,
+            default);
+
         Assert.Null(await service.Authenticate(login.AccessToken, default));
     }
     [Fact]
@@ -52,28 +72,33 @@ public sealed class AuthFlowTests
         Assert.Equal("invalid_avatar_url", (await Assert.ThrowsAsync<AppProblem>(() => service.UpdateProfile(repo.User!.Id, new("Alice", "http://example.com/a"), default))).Code);
     }
     [Fact]
-    public async Task Otp_expires_and_five_wrong_attempts_exhaust_it()
-    {
-        var repo = new MemoryUsers(); var mail = new MemoryMail(); var clock = new TestClock(); var service = new AuthService(repo, mail, clock, new MemoryAvatars(), new string('p', 32));
-        await service.Register(new("a@example.com", "long-secure-password", "Alice"), default);
-        for (var i = 0; i < 5; i++) await Assert.ThrowsAsync<AppProblem>(() => service.Verify(new("a@example.com", "999999" == mail.Code ? "888888" : "999999"), default));
-        Assert.Equal("invalid_code", (await Assert.ThrowsAsync<AppProblem>(() => service.Verify(new("a@example.com", mail.Code!), default))).Code);
-        clock.UtcNow = clock.UtcNow.AddMinutes(11);
-        await service.Resend("a@example.com", default);
-        clock.UtcNow = clock.UtcNow.AddMinutes(11);
-        Assert.Equal("invalid_code", (await Assert.ThrowsAsync<AppProblem>(() => service.Verify(new("a@example.com", mail.Code!), default))).Code);
-    }
-    [Fact]
     public async Task Five_bad_passwords_temporarily_lock_account()
     {
-        var repo = new MemoryUsers(); var mail = new MemoryMail(); var clock = new TestClock(); var service = new AuthService(repo, mail, clock, new MemoryAvatars(), new string('p', 32));
-        await service.Register(new("a@example.com", "long-secure-password", "Alice"), default);
-        await service.Verify(new("a@example.com", mail.Code!), default);
-        for (var i = 0; i < 5; i++) await Assert.ThrowsAsync<AppProblem>(() => service.Login(new("a@example.com", "bad"), default));
-        Assert.Equal("login_locked", (await Assert.ThrowsAsync<AppProblem>(() => service.Login(new("a@example.com", "long-secure-password"), default))).Code);
+        var repo = new MemoryUsers();
+        var clock = new TestClock();
+        var service = new AuthService(
+            repo, new MemoryMail(), clock, new MemoryAvatars(), new string('p', 32));
+
+        await service.Register(
+            new("a@example.com", "long-secure-password", "Alice"), default);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await Assert.ThrowsAsync<AppProblem>(() =>
+                service.Login(new("a@example.com", "bad"), default));
+        }
+
+        var locked = await Assert.ThrowsAsync<AppProblem>(() =>
+            service.Login(new("a@example.com", "long-secure-password"), default));
+        Assert.Equal("login_locked", locked.Code);
+
         clock.UtcNow = clock.UtcNow.AddMinutes(16);
-        Assert.NotNull((await service.Login(new("a@example.com", "long-secure-password"), default)).AccessToken);
+
+        var login = await service.Login(
+            new("a@example.com", "long-secure-password"), default);
+        Assert.NotNull(login.AccessToken);
     }
+  
     [Fact]
     public async Task Uploaded_avatar_is_available_only_for_the_user_and_can_be_cleared()
     {
@@ -127,5 +152,23 @@ public sealed class AuthFlowTests
         public void AddCode(VerificationCode code) => codes.Add(code);
         public void AddSession(UserSession session) { session.User = User!; sessions.Add(session); }
         public Task Save(CancellationToken ct) => Task.CompletedTask;
+        
+        public bool CoupleHistory;
+
+        public Task<bool> HasCoupleHistory(Guid userId, CancellationToken ct) =>
+            Task.FromResult(CoupleHistory);
+
+        public void RemoveUser(UserAccount user)
+        {
+            User = null;
+            sessions.Clear();
+            codes.Clear();
+        }
+        
+        public Task RevokeSessions(Guid userId, CancellationToken ct)
+        {
+            sessions.RemoveAll(s => s.UserId == userId);
+            return Task.CompletedTask;
+        }
     }
 }

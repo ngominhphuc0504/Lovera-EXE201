@@ -4,6 +4,8 @@ For public HTTPS deployment and frontend CORS configuration, see [DEPLOYMENT.md]
 
 Backend .NET 8 riêng cho LOVERA. Phiên bản này triển khai **F00–F06** theo `LOVERA_FRD_OC1_MVP_v1.1.docx` (Draft, 23/09/2026), đã đối chiếu với bản Project Overview do chủ dự án cung cấp. Backend PIEDTEAM chỉ được dùng để tham khảo cách chia API, Service, Repository; không sao chép nghiệp vụ. Xem [bản đồ nguồn yêu cầu](docs/requirements-map.md) và [API F01–F06](docs/features-f01-f06.md).
 
+Hướng dẫn [cấp sẵn 10 tài khoản và chạy cùng Docker](docs/accounts-and-docker.md). Tài khoản nằm trong PostgreSQL; công cụ nhập nhận file riêng và chỉ lưu mật khẩu đã băm. API hiện kiểm tra database khi khởi động. Nếu chạy API trong Docker, tắt container sẽ tắt luôn Swagger; nếu chạy trực tiếp từ Rider thì đó là tiến trình riêng.
+
 ## Kiến trúc và dữ liệu
 
 - **API** nhận HTTP, validation, xác thực phiên, Swagger và trả lỗi JSON.

@@ -17,7 +17,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
 
     public async Task<PairingCodeResponse> CreateInvitation(Guid userId, int lifetimeHours, CancellationToken ct)
     {
-        await RequireVerified(userId, ct);
+        await RequireExistingUser(userId, ct);
         if (lifetimeHours is < 1 or > 168) throw new InvalidOperationException("Pairing:CodeHours must be between 1 and 168.");
         await using var tx = await repo.LockUsers(userId, userId, ct);
         if (await repo.ActiveCouple(userId, ct) is not null) throw new AppProblem(409, "already_paired", "Tài khoản đã ghép đôi.");
@@ -40,7 +40,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
 
     public async Task<CoupleResponse> Join(Guid userId, string code, CancellationToken ct)
     {
-        await RequireVerified(userId, ct);
+        await RequireExistingUser(userId, ct);
         if (string.IsNullOrWhiteSpace(code) || code.Length != 12 || !code.All(Uri.IsHexDigit))
             throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");
         var invitation = await repo.Invitation(HashCode(code.ToUpperInvariant()), ct)
@@ -56,7 +56,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
         if (invitation.ExpiresAtUtc <= clock.UtcNow) throw new AppProblem(410, "pairing_code_expired", "Mã ghép đôi đã hết hạn.");
         if (invitation.RedeemedAtUtc is not null || invitation.CancelledAtUtc is not null)
             throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");
-        await RequireVerified(invitation.CreatorUserId, ct);
+        await RequireExistingUser(invitation.CreatorUserId, ct);
         if (await repo.ActiveCouple(userId, ct) is not null || await repo.ActiveCouple(invitation.CreatorUserId, ct) is not null)
             throw new AppProblem(409, "already_paired", "Một trong hai tài khoản đã ghép đôi.");
         var now = clock.UtcNow;
@@ -121,10 +121,10 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
             couple.StartDate is { } start ? today.DayNumber - start.DayNumber + 1 : null, timeZone.Id);
     }
 
-    private async Task RequireVerified(Guid userId, CancellationToken ct)
+    private async Task RequireExistingUser(Guid userId, CancellationToken ct)
     {
-        if (await repo.User(userId, ct) is not { EmailVerified: true })
-            throw new AppProblem(403, "email_unverified", "Cần xác thực email trước khi ghép đôi.");
+        if (await repo.User(userId, ct) is null)
+            throw new AppProblem(404, "user_not_found", "Không tìm thấy tài khoản.");
     }
 
     private static CoupleResponse ToResponse(Couple c) =>

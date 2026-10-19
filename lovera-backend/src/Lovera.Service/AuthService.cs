@@ -9,6 +9,16 @@ namespace Lovera.Service;
 public sealed record RegisterRequest([Required, EmailAddress, MaxLength(320)] string Email, [Required, MinLength(6), MaxLength(128)] string Password, [Required, MinLength(1), MaxLength(80)] string DisplayName);
 public sealed record VerifyRequest([Required, EmailAddress] string Email, [Required, RegularExpression("^[0-9]{6}$")] string Code);
 public sealed record LoginRequest([Required, EmailAddress] string Email, [Required, MaxLength(128)] string Password);
+
+public sealed record CreateRecoveryCodeRequest(
+    [Required, MaxLength(128)] string CurrentPassword);
+
+public sealed record ResetPasswordRequest(
+    [Required, EmailAddress, MaxLength(320)] string Email,
+    [Required, RegularExpression("^[0-9A-Fa-f]{40}$")] string RecoveryCode,
+    [Required, MinLength(6), MaxLength(128)] string NewPassword);
+public sealed record DeleteAccountRequest(
+    [Required, MaxLength(128)] string Password);
 public sealed record UpdateProfileRequest([Required, MinLength(1), MaxLength(80)] string DisplayName, string? AvatarUrl);
 public sealed record ProfileResponse(Guid Id, string Email, bool EmailVerified, string DisplayName, string? AvatarUrl);
 public sealed record LoginResponse(string AccessToken, DateTime ExpiresAtUtc, ProfileResponse Profile);
@@ -22,20 +32,45 @@ public interface IClock { DateTime UtcNow { get; } }
 public sealed class SystemClock : IClock { public DateTime UtcNow => DateTime.UtcNow; }
 public sealed class AuthService(IUsersRepository users, IVerificationMail mail, IClock clock, IAvatarStorage avatars, string otpPepper)
 {
-    public async Task Register(RegisterRequest input, CancellationToken ct)
+    public async Task<string> Register(RegisterRequest input, CancellationToken ct)
     {
         var email = NormalizeEmail(input.Email);
         var name = ValidateName(input.DisplayName);
-        if (input.Password.Length < 6 || input.Password.Length > 128) throw new AppProblem(400, "invalid_password", "Mật khẩu phải dài 6-128 ký tự.");
-        if (await users.FindByEmail(email, ct) is not null) throw new AppProblem(409, "email_exists", "Email đã được đăng ký.");
-        var now = clock.UtcNow;
-        var user = new UserAccount { Email = email, DisplayName = name, PasswordHash = Passwords.Hash(input.Password), CreatedAtUtc = now };
-        var code = NewCode();
+
+        if (input.Password.Length < 6 || input.Password.Length > 128)
+            throw new AppProblem(
+                400, "invalid_password", "Mật khẩu phải dài 6-128 ký tự.");
+
+        if (await users.FindByEmail(email, ct) is not null)
+            throw new AppProblem(409, "email_exists", "Email đã được đăng ký.");
+
+        var recoveryCode = NewRecoveryCode();
+
+        var user = new UserAccount
+        {
+            Email = email,
+            DisplayName = name,
+            PasswordHash = Passwords.Hash(input.Password),
+            RecoveryCodeHash = HashRecoveryCode(recoveryCode),
+            CreatedAtUtc = clock.UtcNow
+        };
+
         users.AddUser(user);
-        users.AddCode(NewVerification(user.Id, code, now));
-        try { await users.Save(ct); }
-        catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation }) { throw new AppProblem(409, "email_exists", "Email đã được đăng ký."); }
-        await mail.Send(email, code, ct);
+
+        try
+        {
+            await users.Save(ct);
+        }
+        catch (DbUpdateException e) when (
+            e.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.UniqueViolation
+            })
+        {
+            throw new AppProblem(409, "email_exists", "Email đã được đăng ký.");
+        }
+
+        return recoveryCode;
     }
     public async Task Resend(string address, CancellationToken ct)
     {
@@ -85,23 +120,129 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         }
         user.FailedLoginCount = 0;
         user.LoginLockedUntilUtc = null;
-        if (!user.EmailVerified) { await users.Save(ct); throw new AppProblem(403, "email_unverified", "Cần xác thực email trước khi đăng nhập."); }
+        //if (!user.EmailVerified) { await users.Save(ct); throw new AppProblem(403, "email_unverified", "Cần xác thực email trước khi đăng nhập."); }
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         var session = new UserSession { UserId = user.Id, TokenHash = TokenHash(token), CreatedAtUtc = now, ExpiresAtUtc = now.AddDays(7) };
         users.AddSession(session);
         await users.Save(ct);
         return new LoginResponse(token, session.ExpiresAtUtc, ToProfile(user));
     }
+    
+    public async Task<string> CreateRecoveryCode(
+        Guid userId, string currentPassword, CancellationToken ct)
+    {
+        var user = await users.FindById(userId, ct)
+                   ?? throw new AppProblem(404, "not_found", "Không tìm thấy tài khoản.");
+
+        if (!Passwords.Verify(currentPassword, user.PasswordHash))
+            throw new AppProblem(401, "password_incorrect", "Mật khẩu không đúng.");
+
+        var code = NewRecoveryCode();
+        user.RecoveryCodeHash = HashRecoveryCode(code);
+
+        try
+        {
+            await users.Save(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new AppProblem(
+                409, "recovery_code_changed", "Mã khôi phục đã thay đổi. Vui lòng thử lại.");
+        }
+
+        return code;
+    }
+
+    public async Task<string> ResetPassword(
+        ResetPasswordRequest input, CancellationToken ct)
+    {
+        var email = NormalizeEmail(input.Email);
+        var code = input.RecoveryCode.Trim().ToUpperInvariant();
+
+        if (code.Length != 40 || !code.All(Uri.IsHexDigit))
+            throw InvalidRecoveryCode();
+
+        if (input.NewPassword.Length < 6 || input.NewPassword.Length > 128)
+            throw new AppProblem(
+                400, "invalid_password", "Mật khẩu phải dài 6-128 ký tự.");
+
+        var user = await users.FindByEmail(email, ct);
+        var givenHash = HashRecoveryCode(code);
+
+        if (user?.RecoveryCodeHash is not { } storedHash ||
+            !CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(storedHash),
+                Convert.FromHexString(givenHash)))
+        {
+            throw InvalidRecoveryCode();
+        }
+
+        var nextCode = NewRecoveryCode();
+        user.PasswordHash = Passwords.Hash(input.NewPassword);
+        user.RecoveryCodeHash = HashRecoveryCode(nextCode);
+
+        await users.RevokeSessions(user.Id, ct);
+
+        try
+        {
+            await users.Save(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw InvalidRecoveryCode();
+        }
+
+        return nextCode;
+    }
     public async Task<UserSession?> Authenticate(string token, CancellationToken ct)
     {
         if (token.Length != 64 || !token.All(Uri.IsHexDigit)) return null;
         var session = await users.FindSession(TokenHash(token), ct);
-        return session is { RevokedAtUtc: null } && session.ExpiresAtUtc > clock.UtcNow && session.User.EmailVerified ? session : null;
+        return session is { RevokedAtUtc: null } && session.ExpiresAtUtc > clock.UtcNow ? session : null;
     }
     public async Task Logout(UserSession session, CancellationToken ct)
     {
         session.RevokedAtUtc = clock.UtcNow;
         await users.Save(ct);
+    }
+    
+    public async Task DeleteAccount(Guid userId, string password, CancellationToken ct)
+    {
+        var user = await users.FindById(userId, ct)
+                   ?? throw new AppProblem(404, "not_found", "Không tìm thấy tài khoản.");
+
+        if (!Passwords.Verify(password, user.PasswordHash))
+            throw new AppProblem(401, "password_incorrect", "Mật khẩu không đúng.");
+
+        if (await users.HasCoupleHistory(userId, ct))
+            throw new AppProblem(
+                409,
+                "account_has_couple_history",
+                "Tài khoản đã có lịch sử ghép đôi; chưa thể xóa vì cần giữ dữ liệu của người còn lại.");
+
+        if (user.AvatarUrl == UploadedAvatarPath)
+            throw new AppProblem(
+                409,
+                "avatar_must_be_removed",
+                "Hãy xóa avatar đã tải lên trước khi xóa tài khoản.");
+
+        users.RemoveUser(user);
+
+        try
+        {
+            await users.Save(ct);
+        }
+        catch (DbUpdateException e) when (
+            e.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.ForeignKeyViolation
+            })
+        {
+            throw new AppProblem(
+                409,
+                "account_has_related_data",
+                "Tài khoản còn dữ liệu liên kết nên chưa thể xóa.");
+        }
     }
     public async Task<ProfileResponse> GetProfile(Guid userId, CancellationToken ct)
     {
@@ -168,6 +309,17 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         if (email.Length > 320 || !new EmailAddressAttribute().IsValid(email)) throw new AppProblem(400, "invalid_email", "Email không hợp lệ.");
         return email;
     }
+    
+    private static string NewRecoveryCode() =>
+        Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
+
+    private static string HashRecoveryCode(string code) =>
+        Convert.ToHexString(
+            SHA256.HashData(
+                Encoding.ASCII.GetBytes(code.ToUpperInvariant())));
+
+    private static AppProblem InvalidRecoveryCode() =>
+        new(400, "invalid_recovery_code", "Mã khôi phục không hợp lệ.");
     private static string ValidateName(string name)
     {
         name = name.Trim();

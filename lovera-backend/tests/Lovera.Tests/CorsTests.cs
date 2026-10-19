@@ -15,6 +15,7 @@ public sealed class CorsTests
             .WithWebHostBuilder(webHost => webHost
                 .UseSetting("ConnectionStrings:Default", "Host=localhost;Database=unused;Username=unused;Password=unused")
                 .UseSetting("Otp:Pepper", new string('x', 32))
+                .UseSetting("Database:SkipStartupCheck", "true")
                 .UseSetting("Cors:AllowedOrigins", "https://app.example.com"));
         using var client = factory.CreateClient();
 
