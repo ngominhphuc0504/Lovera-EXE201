@@ -9,18 +9,20 @@ namespace Lovera.Tests;
 public sealed class FeatureFlowTests
 {
     [Fact]
-    public async Task Pairing_allows_unverified_user_and_rejects_expired_code()
+    public async Task Pairing_requires_verified_user_and_rejects_expired_code()
     {
         var repo = new Mock<IFeatureRepository>();
         var clock = new FakeClock();
         var userId = Guid.NewGuid();
 
+        var user = new UserAccount
+        {
+            Id = userId,
+            EmailVerified = false
+        };
+
         repo.Setup(r => r.User(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new UserAccount
-            {
-                Id = userId,
-                EmailVerified = false
-            });
+            .ReturnsAsync(user);
 
         repo.Setup(r => r.Invitation(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -31,6 +33,12 @@ public sealed class FeatureFlowTests
             });
 
         var service = new CoupleService(repo.Object, clock, TimeZoneInfo.Utc);
+
+        var unverified = await Assert.ThrowsAsync<AppProblem>(() =>
+            service.Join(userId, "AABBCCDDEEFF", default));
+        Assert.Equal("email_unverified", unverified.Code);
+
+        user.EmailVerified = true;
 
         var expired = await Assert.ThrowsAsync<AppProblem>(() =>
             service.Join(userId, "AABBCCDDEEFF", default));

@@ -39,10 +39,33 @@ builder.Services.AddScoped<MemoryService>();
 builder.Services.AddScoped<DatePlanService>();
 builder.Services.AddHttpClient<IDatePlanGenerator, HttpDatePlanGenerator>(client =>
     client.Timeout = TimeSpan.FromSeconds(builder.Configuration.GetValue("Ai:TimeoutSeconds", 15)));
-builder.Services.AddSingleton<IAvatarStorage>(new LocalAvatarStorage(builder.Configuration["Avatar:Directory"] ?? Path.Combine(builder.Environment.ContentRootPath, "avatars")));
+//builder.Services.AddSingleton<IAvatarStorage>(new LocalAvatarStorage(builder.Configuration["Avatar:Directory"] ?? Path.Combine(builder.Environment.ContentRootPath, "avatars")));
+
+var avatarProvider = builder.Configuration["Avatar:Provider"] ?? "Local";
+
+if (avatarProvider.Equals("Cloudinary", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddHttpClient<IAvatarStorage, CloudinaryAvatarStorage>();
+else if (avatarProvider.Equals("Local", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddSingleton<IAvatarStorage>(
+        new LocalAvatarStorage(
+            builder.Configuration["Avatar:Directory"] ??
+            Path.Combine(builder.Environment.ContentRootPath, "avatars")));
+else
+    throw new InvalidOperationException("Avatar:Provider không hợp lệ.");
+
 builder.Services.AddSingleton<IClock, Lovera.Service.SystemClock>();
 builder.Services.AddScoped<AuthService>(sp => new AuthService(sp.GetRequiredService<IUsersRepository>(), sp.GetRequiredService<IVerificationMail>(), sp.GetRequiredService<IClock>(), sp.GetRequiredService<IAvatarStorage>(), pepper));
-builder.Services.AddSingleton<IVerificationMail, SmtpVerificationMail>();
+//builder.Services.AddSingleton<IVerificationMail, SmtpVerificationMail>();
+
+var emailProvider = builder.Configuration["Email:Provider"] ?? "Smtp";
+
+if (emailProvider.Equals("Brevo", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddHttpClient<IVerificationMail, BrevoVerificationMail>();
+else if (emailProvider.Equals("Smtp", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddSingleton<IVerificationMail, SmtpVerificationMail>();
+else
+    throw new InvalidOperationException("Email:Provider không hợp lệ.");
+
 builder.Services.AddAuthentication("Session").AddScheme<AuthenticationSchemeOptions, SessionAuthHandler>("Session", _ => { });
 builder.Services.AddAuthorization(o => o.AddPolicy("VerifiedEmail", p => p.RequireAuthenticatedUser().RequireClaim("email_verified", "true")));
 builder.Services.AddControllers().ConfigureApiBehaviorOptions(o => o.InvalidModelStateResponseFactory = c => new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new { code = "invalid_input", message = "Dữ liệu đầu vào không hợp lệ.", errors = c.ModelState.Where(x => x.Value?.Errors.Count > 0).ToDictionary(x => x.Key, x => x.Value!.Errors.Select(e => e.ErrorMessage)) }));

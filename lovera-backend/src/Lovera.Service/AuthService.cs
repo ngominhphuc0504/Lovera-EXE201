@@ -10,12 +10,12 @@ public sealed record RegisterRequest([Required, EmailAddress, MaxLength(320)] st
 public sealed record VerifyRequest([Required, EmailAddress] string Email, [Required, RegularExpression("^[0-9]{6}$")] string Code);
 public sealed record LoginRequest([Required, EmailAddress] string Email, [Required, MaxLength(128)] string Password);
 
-public sealed record CreateRecoveryCodeRequest(
-    [Required, MaxLength(128)] string CurrentPassword);
+public sealed record ForgotPasswordRequest(
+    [Required, EmailAddress, MaxLength(320)] string Email);
 
 public sealed record ResetPasswordRequest(
     [Required, EmailAddress, MaxLength(320)] string Email,
-    [Required, RegularExpression("^[0-9A-Fa-f]{40}$")] string RecoveryCode,
+    [Required, RegularExpression("^[0-9]{6}$")] string Code,
     [Required, MinLength(6), MaxLength(128)] string NewPassword);
 public sealed record DeleteAccountRequest(
     [Required, MaxLength(128)] string Password);
@@ -27,12 +27,16 @@ public sealed class AppProblem(int status, string code, string message) : Except
     public int Status { get; } = status;
     public string Code { get; } = code;
 }
-public interface IVerificationMail { Task Send(string email, string code, CancellationToken ct); }
+public interface IVerificationMail
+{
+    Task Send(string email, string code, CancellationToken ct);
+    Task SendPasswordReset(string email, string code, CancellationToken ct);
+}
 public interface IClock { DateTime UtcNow { get; } }
 public sealed class SystemClock : IClock { public DateTime UtcNow => DateTime.UtcNow; }
 public sealed class AuthService(IUsersRepository users, IVerificationMail mail, IClock clock, IAvatarStorage avatars, string otpPepper)
 {
-    public async Task<string> Register(RegisterRequest input, CancellationToken ct)
+    public async Task Register(RegisterRequest input, CancellationToken ct)
     {
         var email = NormalizeEmail(input.Email);
         var name = ValidateName(input.DisplayName);
@@ -44,18 +48,18 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         if (await users.FindByEmail(email, ct) is not null)
             throw new AppProblem(409, "email_exists", "Email đã được đăng ký.");
 
-        var recoveryCode = NewRecoveryCode();
-
+        var now = clock.UtcNow;
+        var code = NewCode();
         var user = new UserAccount
         {
             Email = email,
             DisplayName = name,
             PasswordHash = Passwords.Hash(input.Password),
-            RecoveryCodeHash = HashRecoveryCode(recoveryCode),
-            CreatedAtUtc = clock.UtcNow
+            CreatedAtUtc = now
         };
 
         users.AddUser(user);
+        users.AddCode(NewVerification(user.Id, code, now));
 
         try
         {
@@ -70,7 +74,7 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
             throw new AppProblem(409, "email_exists", "Email đã được đăng ký.");
         }
 
-        return recoveryCode;
+        await mail.Send(email, code, ct);
     }
     public async Task Resend(string address, CancellationToken ct)
     {
@@ -120,7 +124,7 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         }
         user.FailedLoginCount = 0;
         user.LoginLockedUntilUtc = null;
-        //if (!user.EmailVerified) { await users.Save(ct); throw new AppProblem(403, "email_unverified", "Cần xác thực email trước khi đăng nhập."); }
+        if (!user.EmailVerified) { await users.Save(ct); throw new AppProblem(403, "email_unverified", "Cần xác thực email trước khi đăng nhập."); }
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
         var session = new UserSession { UserId = user.Id, TokenHash = TokenHash(token), CreatedAtUtc = now, ExpiresAtUtc = now.AddDays(7) };
         users.AddSession(session);
@@ -128,72 +132,91 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         return new LoginResponse(token, session.ExpiresAtUtc, ToProfile(user));
     }
     
-    public async Task<string> CreateRecoveryCode(
-        Guid userId, string currentPassword, CancellationToken ct)
+public async Task RequestPasswordReset(string address, CancellationToken ct)
+{
+    var email = NormalizeEmail(address);
+    var user = await users.FindByEmail(email, ct);
+
+    // API luôn trả cùng một kết quả dù email không tồn tại.
+    if (user is null || !user.EmailVerified) return;
+
+    var now = clock.UtcNow;
+    var previous = await users.LatestPasswordResetCode(user.Id, ct);
+
+    if (previous is not null &&
+        now - previous.CreatedAtUtc < TimeSpan.FromSeconds(60))
+        return;
+
+    if (previous is not null)
+        previous.ConsumedAtUtc = now;
+
+    var code = NewCode();
+    users.AddPasswordResetCode(new PasswordResetCode
     {
-        var user = await users.FindById(userId, ct)
-                   ?? throw new AppProblem(404, "not_found", "Không tìm thấy tài khoản.");
+        UserId = user.Id,
+        CodeHash = PasswordResetHash(user.Id, code),
+        CreatedAtUtc = now,
+        ExpiresAtUtc = now.AddMinutes(10)
+    });
 
-        if (!Passwords.Verify(currentPassword, user.PasswordHash))
-            throw new AppProblem(401, "password_incorrect", "Mật khẩu không đúng.");
+    await users.Save(ct);
+    await mail.SendPasswordReset(email, code, ct);
+}
 
-        var code = NewRecoveryCode();
-        user.RecoveryCodeHash = HashRecoveryCode(code);
+public async Task ResetPassword(
+    ResetPasswordRequest input, CancellationToken ct)
+{
+    var email = NormalizeEmail(input.Email);
+    var code = input.Code.Trim();
 
-        try
-        {
-            await users.Save(ct);
-        }
+    if (code.Length != 6 || !code.All(char.IsAsciiDigit))
+        throw InvalidResetCode();
+
+    if (input.NewPassword.Length < 6 || input.NewPassword.Length > 128)
+        throw new AppProblem(
+            400, "invalid_password", "Mật khẩu phải dài 6-128 ký tự.");
+
+    var user = await users.FindByEmail(email, ct);
+    if (user is null || !user.EmailVerified)
+        throw InvalidResetCode();
+
+    var reset = await users.LatestPasswordResetCode(user.Id, ct);
+    var now = clock.UtcNow;
+
+    if (reset is null ||
+        reset.ExpiresAtUtc <= now ||
+        reset.FailedAttempts >= 5)
+        throw InvalidResetCode();
+
+    var givenHash = PasswordResetHash(user.Id, code);
+    if (!CryptographicOperations.FixedTimeEquals(
+            Convert.FromHexString(reset.CodeHash),
+            Convert.FromHexString(givenHash)))
+    {
+        reset.FailedAttempts++;
+
+        try { await users.Save(ct); }
         catch (DbUpdateConcurrencyException)
         {
-            throw new AppProblem(
-                409, "recovery_code_changed", "Mã khôi phục đã thay đổi. Vui lòng thử lại.");
+            throw InvalidResetCode();
         }
 
-        return code;
+        throw InvalidResetCode();
     }
 
-    public async Task<string> ResetPassword(
-        ResetPasswordRequest input, CancellationToken ct)
+    reset.ConsumedAtUtc = now;
+    user.PasswordHash = Passwords.Hash(input.NewPassword);
+    user.FailedLoginCount = 0;
+    user.LoginLockedUntilUtc = null;
+
+    await users.RevokeSessions(user.Id, ct);
+
+    try { await users.Save(ct); }
+    catch (DbUpdateConcurrencyException)
     {
-        var email = NormalizeEmail(input.Email);
-        var code = input.RecoveryCode.Trim().ToUpperInvariant();
-
-        if (code.Length != 40 || !code.All(Uri.IsHexDigit))
-            throw InvalidRecoveryCode();
-
-        if (input.NewPassword.Length < 6 || input.NewPassword.Length > 128)
-            throw new AppProblem(
-                400, "invalid_password", "Mật khẩu phải dài 6-128 ký tự.");
-
-        var user = await users.FindByEmail(email, ct);
-        var givenHash = HashRecoveryCode(code);
-
-        if (user?.RecoveryCodeHash is not { } storedHash ||
-            !CryptographicOperations.FixedTimeEquals(
-                Convert.FromHexString(storedHash),
-                Convert.FromHexString(givenHash)))
-        {
-            throw InvalidRecoveryCode();
-        }
-
-        var nextCode = NewRecoveryCode();
-        user.PasswordHash = Passwords.Hash(input.NewPassword);
-        user.RecoveryCodeHash = HashRecoveryCode(nextCode);
-
-        await users.RevokeSessions(user.Id, ct);
-
-        try
-        {
-            await users.Save(ct);
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            throw InvalidRecoveryCode();
-        }
-
-        return nextCode;
+        throw InvalidResetCode();
     }
+}
     public async Task<UserSession?> Authenticate(string token, CancellationToken ct)
     {
         if (token.Length != 64 || !token.All(Uri.IsHexDigit)) return null;
@@ -310,16 +333,14 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         return email;
     }
     
-    private static string NewRecoveryCode() =>
-        Convert.ToHexString(RandomNumberGenerator.GetBytes(20));
+    private string PasswordResetHash(Guid userId, string code) =>
+        Convert.ToHexString(HMACSHA256.HashData(
+            Encoding.UTF8.GetBytes(otpPepper),
+            Encoding.UTF8.GetBytes($"password-reset:{userId:N}:{code}")));
 
-    private static string HashRecoveryCode(string code) =>
-        Convert.ToHexString(
-            SHA256.HashData(
-                Encoding.ASCII.GetBytes(code.ToUpperInvariant())));
-
-    private static AppProblem InvalidRecoveryCode() =>
-        new(400, "invalid_recovery_code", "Mã khôi phục không hợp lệ.");
+    private static AppProblem InvalidResetCode() =>
+        new(400, "invalid_reset_code",
+            "Mã đặt lại mật khẩu không đúng, hết hạn hoặc hết lượt thử.");
     private static string ValidateName(string name)
     {
         name = name.Trim();

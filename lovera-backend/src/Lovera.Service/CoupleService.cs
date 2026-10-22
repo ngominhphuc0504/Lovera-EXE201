@@ -121,10 +121,19 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
             couple.StartDate is { } start ? today.DayNumber - start.DayNumber + 1 : null, timeZone.Id);
     }
 
-    private async Task RequireExistingUser(Guid userId, CancellationToken ct)
+    private async Task RequireExistingUser(
+        Guid userId, CancellationToken ct)
     {
-        if (await repo.User(userId, ct) is null)
-            throw new AppProblem(404, "user_not_found", "Không tìm thấy tài khoản.");
+        var user = await repo.User(userId, ct);
+
+        if (user is null)
+            throw new AppProblem(
+                404, "user_not_found", "Không tìm thấy tài khoản.");
+
+        if (!user.EmailVerified)
+            throw new AppProblem(
+                403, "email_unverified",
+                "Cần xác thực email trước khi ghép đôi.");
     }
 
     private static CoupleResponse ToResponse(Couple c) =>

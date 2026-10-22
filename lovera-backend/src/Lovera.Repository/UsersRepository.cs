@@ -14,6 +14,9 @@ public interface IUsersRepository
     void AddSession(UserSession session);
     Task Save(CancellationToken ct);
     Task RevokeSessions(Guid userId, CancellationToken ct);
+    
+    Task<PasswordResetCode?> LatestPasswordResetCode(Guid userId, CancellationToken ct);
+    void AddPasswordResetCode(PasswordResetCode code);
 }
 public sealed class UsersRepository(LoveraDbContext db) : IUsersRepository
 {
@@ -39,5 +42,15 @@ public sealed class UsersRepository(LoveraDbContext db) : IUsersRepository
 
         db.Sessions.RemoveRange(sessions);
     }
+    
+    public Task<PasswordResetCode?> LatestPasswordResetCode(
+        Guid userId, CancellationToken ct) =>
+        db.PasswordResetCodes
+            .Where(x => x.UserId == userId && x.ConsumedAtUtc == null)
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+
+    public void AddPasswordResetCode(PasswordResetCode code) =>
+        db.PasswordResetCodes.Add(code);
     
 }
