@@ -69,7 +69,12 @@ public sealed class BrevoVerificationMail(
         {
             using var response = await http.SendAsync(request, ct);
             if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning(
+                    "Brevo rejected email with HTTP status {StatusCode}.",
+                    (int)response.StatusCode);
                 throw EmailUnavailable();
+            }
         }
         catch (HttpRequestException)
         {
