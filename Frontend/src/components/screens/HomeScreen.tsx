@@ -7,9 +7,14 @@ import {
   Flame, 
   Send, 
   Edit3,
-  Award
+  Award,
+  User,
+  Sparkles,
+  HeartHandshake,
+  Camera,
+  ChevronRight
 } from 'lucide-react';
-import { CoupleData, ConnectionStatusType } from '../../types';
+import { CoupleData, ConnectionStatusType, MemoryItem } from '../../types';
 import { INITIAL_ACTIVITY_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
 
@@ -24,20 +29,88 @@ const getActivityLabel = (activity?: string) =>
 
 interface HomeScreenProps {
   couple: CoupleData;
+  recentMemories?: MemoryItem[];
   onOpenStatusModal: () => void;
   onOpenLoveDayModal: () => void;
   onSendLovePing: () => void;
   pingSent: boolean;
+  onNavigateToPairing?: () => void;
+  onNavigateToProfile?: () => void;
+  onNavigateToShared?: () => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   couple,
+  recentMemories = [],
   onOpenStatusModal,
   onOpenLoveDayModal,
   onSendLovePing,
   pingSent,
+  onNavigateToPairing,
+  onNavigateToProfile,
+  onNavigateToShared,
 }) => {
   const { userA, userB, startDate } = couple;
+
+  // Nếu chưa ghép đôi, ẩn hoàn toàn ảnh người thứ hai và các chức năng cặp đôi
+  if (!couple.isPaired) {
+    return (
+      <div className="min-h-full flex flex-col justify-center items-center p-6 text-stone-800 select-none">
+        <div className="max-w-sm w-full bg-white/95 backdrop-blur-md rounded-3xl p-6 border border-rose-100 shadow-sm text-center space-y-4">
+          <div className="relative inline-block mx-auto">
+            <div className="w-20 h-20 rounded-full overflow-hidden border-3 border-white shadow-md mx-auto ring-2 ring-rose-300">
+              <img src={userA.avatar} alt={userA.name} className="w-full h-full object-cover" />
+            </div>
+            <span className="absolute bottom-0 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></span>
+          </div>
+
+          <div className="space-y-1.5">
+            <h2 className="font-serif-romantic text-xl font-bold text-stone-900">
+              Chào {userA.name}!
+            </h2>
+            <p className="text-xs text-stone-500 leading-relaxed">
+              Bạn hiện chưa kết nối không gian cặp đôi. Các tính năng Trang chủ, Đếm ngày yêu và Gửi nhịp tim sẽ kích hoạt ngay khi bạn ghép đôi.
+            </p>
+          </div>
+
+          {/* Locked features preview */}
+          <div className="p-3 bg-stone-50 rounded-2xl border border-stone-200/80 text-[11px] text-stone-500 space-y-1.5 text-left">
+            <div className="flex items-center justify-between text-stone-700 font-semibold text-xs pb-1 border-b border-stone-200/60">
+              <span>Tính năng cặp đôi</span>
+              <span className="text-[10px] text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 font-bold">Khóa 🔒</span>
+            </div>
+            <p>🔒 Bộ đếm ngày yêu & Kỷ niệm 1:1</p>
+            <p>🔒 Nhịp tim rung chuông Love Ping</p>
+            <p>🔒 Chia sẻ trạng thái cảm xúc trực tiếp</p>
+          </div>
+
+          <div className="pt-1 space-y-2">
+            <button
+              onClick={() => {
+                playSound('click');
+                onNavigateToPairing?.();
+              }}
+              className="w-full min-h-[46px] py-3 px-4 bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2"
+            >
+              <Heart className="w-4 h-4 fill-white" />
+              <span>Ghép Đôi Ngay (Pairing)</span>
+            </button>
+            <button
+              onClick={() => {
+                playSound('click');
+                onNavigateToProfile?.();
+              }}
+              className="w-full min-h-[42px] py-2.5 px-4 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold text-xs rounded-2xl transition-colors flex items-center justify-center gap-2"
+            >
+              <User className="w-4 h-4 text-stone-500" />
+              <span>Xem Hồ Sơ Cá Nhân (Profile)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const totalDays = calculateTotalDays(startDate);
 
   // Milestone calculation
@@ -260,6 +333,78 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </span>
           </div>
         </div>
+      </section>
+
+      {/* ------------------------------------------------------------- */}
+      {/* CARD 4: SHARED SPACE / MEMORIES PREVIEW                       */}
+      {/* ------------------------------------------------------------- */}
+      <section aria-label="Khoảnh khắc kỷ niệm" className="mx-4 bg-white/95 backdrop-blur-md rounded-3xl p-3 border border-rose-100/90 shadow-xs mb-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800">
+            <Camera className="w-3.5 h-3.5 text-rose-500" />
+            <span>Khoảnh Khắc Kỷ Niệm</span>
+            <span className="text-[10px] bg-rose-50 text-rose-600 font-bold px-1.5 py-0.2 rounded-full border border-rose-200">
+              {recentMemories.length} ảnh
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              playSound('click');
+              onNavigateToShared?.();
+            }}
+            className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 flex items-center gap-0.5 active:scale-95 transition-all"
+          >
+            <span>Vào Không Gian</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {recentMemories.length > 0 ? (
+          <div className="space-y-2">
+            <div className="grid grid-cols-3 gap-1.5">
+              {recentMemories.slice(0, 3).map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    playSound('click');
+                    onNavigateToShared?.();
+                  }}
+                  className="group relative aspect-square rounded-2xl overflow-hidden cursor-pointer border border-stone-100 shadow-2xs hover:shadow-sm transition-all"
+                >
+                  <img
+                    src={item.imageUrl}
+                    alt={item.caption}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1.5">
+                    <p className="text-[9px] text-white font-medium truncate leading-tight">
+                      {item.caption}
+                    </p>
+                  </div>
+                  <span className="absolute top-1 right-1 text-[8px] bg-black/40 backdrop-blur-xs text-white px-1 py-0.2 rounded-md font-medium">
+                    ❤️ {item.likes}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px] text-stone-500 text-center italic">
+              "Lưu giữ từng nụ cười, từng chuyến đi cùng người thương" ✨
+            </p>
+          </div>
+        ) : (
+          <div className="py-4 text-center space-y-2 bg-stone-50/60 rounded-2xl border border-dashed border-stone-200">
+            <p className="text-xs text-stone-500 font-medium">Chưa có ảnh kỷ niệm nào được lưu</p>
+            <button
+              onClick={() => {
+                playSound('click');
+                onNavigateToShared?.();
+              }}
+              className="text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition-colors inline-flex items-center gap-1"
+            >
+              <span>+ Thêm ảnh đầu tiên (+10 pts)</span>
+            </button>
+          </div>
+        )}
       </section>
 
     </div>

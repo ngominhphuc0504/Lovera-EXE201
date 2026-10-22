@@ -8,8 +8,25 @@ export type Screen =
   | 'pairing' 
   | 'home' 
   | 'planner' 
+  | 'shared' 
   | 'garden' 
   | 'profile';
+
+export type MemoryTag = 'Hẹn hò' | 'Kỷ niệm' | 'Du lịch' | 'Đời thường' | 'Khoảnh khắc';
+
+export interface MemoryItem {
+  id: string;
+  imageUrl: string;
+  caption: string;
+  date: string; // YYYY-MM-DD
+  location?: string;
+  tag: MemoryTag;
+  authorName: string;
+  authorAvatar: string;
+  likes: number;
+  isLiked?: boolean;
+  createdAt: string;
+}
 
 export type DateType = 'Romantic' | 'Cozy' | 'Adventure';
 export type TimePreference = 'Morning' | 'Afternoon' | 'Evening' | 'FullDay';

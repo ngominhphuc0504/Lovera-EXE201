@@ -22,7 +22,7 @@ public interface IClock { DateTime UtcNow { get; } }
 public sealed class SystemClock : IClock { public DateTime UtcNow => DateTime.UtcNow; }
 public sealed class AuthService(IUsersRepository users, IVerificationMail mail, IClock clock, IAvatarStorage avatars, string otpPepper)
 {
-    public async Task Register(RegisterRequest input, CancellationToken ct)
+    public async Task<string> Register(RegisterRequest input, CancellationToken ct)
     {
         var email = NormalizeEmail(input.Email);
         var name = ValidateName(input.DisplayName);
@@ -36,12 +36,13 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         try { await users.Save(ct); }
         catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation }) { throw new AppProblem(409, "email_exists", "Email đã được đăng ký."); }
         await mail.Send(email, code, ct);
+        return code;
     }
-    public async Task Resend(string address, CancellationToken ct)
+    public async Task<string?> Resend(string address, CancellationToken ct)
     {
         var email = NormalizeEmail(address);
         var user = await users.FindByEmail(email, ct);
-        if (user is null || user.EmailVerified) return;
+        if (user is null || user.EmailVerified) return null;
         var now = clock.UtcNow;
         var previous = await users.LatestCode(user.Id, ct);
         if (previous is not null && now - previous.CreatedAtUtc < TimeSpan.FromSeconds(60)) throw new AppProblem(429, "resend_too_soon", "Vui lòng đợi 60 giây trước khi gửi lại mã.");
@@ -50,6 +51,7 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         users.AddCode(NewVerification(user.Id, code, now));
         await users.Save(ct);
         await mail.Send(email, code, ct);
+        return code;
     }
     public async Task Verify(VerifyRequest input, CancellationToken ct)
     {

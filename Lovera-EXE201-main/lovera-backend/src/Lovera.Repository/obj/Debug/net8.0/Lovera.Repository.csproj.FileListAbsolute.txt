@@ -1,0 +1,15 @@
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\bin\Debug\net8.0\Lovera.Repository.deps.json
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\bin\Debug\net8.0\Lovera.Repository.runtimeconfig.json
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\bin\Debug\net8.0\Lovera.Repository.dll
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\bin\Debug\net8.0\Lovera.Repository.pdb
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.csproj.AssemblyReference.cache
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.GeneratedMSBuildEditorConfig.editorconfig
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.AssemblyInfoInputs.cache
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.AssemblyInfo.cs
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.csproj.CoreCompileInputs.cache
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.dll
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\refint\Lovera.Repository.dll
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.pdb
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.genruntimeconfig.cache
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\ref\Lovera.Repository.dll
+D:\GITHUB LOVERA\Lovera-EXE201-main\lovera-backend\src\Lovera.Repository\obj\Debug\net8.0\Lovera.Repository.sourcelink.json

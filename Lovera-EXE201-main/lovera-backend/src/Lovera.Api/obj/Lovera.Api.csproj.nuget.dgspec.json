@@ -1,0 +1,219 @@
+{
+  "format": 1,
+  "restore": {
+    "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Api\\Lovera.Api.csproj": {}
+  },
+  "projects": {
+    "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Api\\Lovera.Api.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Api\\Lovera.Api.csproj",
+        "projectName": "Lovera.Api",
+        "projectPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Api\\Lovera.Api.csproj",
+        "packagesPath": "C:\\Users\\ngomi\\.nuget\\packages\\",
+        "outputPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Api\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\ngomi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "framework": "net8.0",
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Service\\Lovera.Service.csproj": {
+                "projectPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Service\\Lovera.Service.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net8.0": {
+          "framework": "net8.0",
+          "targetAlias": "net8.0",
+          "dependencies": {
+            "Swashbuckle.AspNetCore": {
+              "target": "Package",
+              "version": "[6.6.2, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.AspNetCore.App": {
+              "privateAssets": "none"
+            },
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.401/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Repository\\Lovera.Repository.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Repository\\Lovera.Repository.csproj",
+        "projectName": "Lovera.Repository",
+        "projectPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Repository\\Lovera.Repository.csproj",
+        "packagesPath": "C:\\Users\\ngomi\\.nuget\\packages\\",
+        "outputPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Repository\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\ngomi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "framework": "net8.0",
+            "targetAlias": "net8.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net8.0": {
+          "framework": "net8.0",
+          "targetAlias": "net8.0",
+          "dependencies": {
+            "Microsoft.EntityFrameworkCore.Design": {
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[8.0.2, )"
+            },
+            "Npgsql.EntityFrameworkCore.PostgreSQL": {
+              "target": "Package",
+              "version": "[8.0.2, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.401/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Service\\Lovera.Service.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Service\\Lovera.Service.csproj",
+        "projectName": "Lovera.Service",
+        "projectPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Service\\Lovera.Service.csproj",
+        "packagesPath": "C:\\Users\\ngomi\\.nuget\\packages\\",
+        "outputPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Service\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\ngomi\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "framework": "net8.0",
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Repository\\Lovera.Repository.csproj": {
+                "projectPath": "D:\\GITHUB LOVERA\\Lovera-EXE201-main\\lovera-backend\\src\\Lovera.Repository\\Lovera.Repository.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.400"
+      },
+      "frameworks": {
+        "net8.0": {
+          "framework": "net8.0",
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.401/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}

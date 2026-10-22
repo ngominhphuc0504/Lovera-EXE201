@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Sparkles, Droplets, User } from 'lucide-react';
+import { Heart, Sparkles, Droplets, User, Camera } from 'lucide-react';
 import { Screen } from '../../types';
 
 interface BottomNavProps {
@@ -7,6 +7,7 @@ interface BottomNavProps {
   onNavigate: (screen: Screen) => void;
   gardenNotification?: boolean;
   isHome?: boolean;
+  isPaired?: boolean;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -14,13 +15,22 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onNavigate,
   gardenNotification = true,
   isHome = false,
+  isPaired = true,
 }) => {
-  const navItems: { id: Screen; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  const pairedNavItems: { id: Screen; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'home', label: 'Home', icon: Heart },
+    { id: 'shared', label: 'Không Gian', icon: Camera },
     { id: 'planner', label: 'Date Plan', icon: Sparkles },
     { id: 'garden', label: 'Garden', icon: Droplets },
     { id: 'profile', label: 'Profile', icon: User },
   ];
+
+  const unpairedNavItems: { id: Screen; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+    { id: 'pairing', label: 'Ghép Đôi', icon: Heart },
+    { id: 'profile', label: 'Profile', icon: User },
+  ];
+
+  const navItems = isPaired ? pairedNavItems : unpairedNavItems;
 
   return (
     <nav 

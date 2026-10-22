@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType } from './types';
+import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType, MemoryItem } from './types';
 import { 
   INITIAL_COUPLE, 
   INITIAL_DATE_PLANS, 
   INITIAL_POINT_HISTORY, 
-  INITIAL_NOTIFICATIONS 
+  INITIAL_NOTIFICATIONS,
+  INITIAL_MEMORIES 
 } from './data/mockData';
 import { playSound } from './utils/audio';
 
@@ -16,8 +17,9 @@ import { OnboardingScreen } from './components/screens/OnboardingScreen';
 import { WelcomeScreen } from './components/screens/WelcomeScreen';
 import { LoginScreen } from './components/screens/LoginScreen';
 import { RegisterScreen } from './components/screens/RegisterScreen';
-import { PairingScreen } from './components/screens/PairingScreen';
+import { PairingScreen, PairingStage } from './components/screens/PairingScreen';
 import { HomeScreen } from './components/screens/HomeScreen';
+import { SharedSpaceScreen } from './components/screens/SharedSpaceScreen';
 import { DatePlannerScreen } from './components/screens/DatePlannerScreen';
 import { GardenScreen } from './components/screens/GardenScreen';
 import { ProfileScreen } from './components/screens/ProfileScreen';
@@ -31,6 +33,8 @@ import { Heart, Smartphone, Monitor } from 'lucide-react';
 export default function App() {
   // Main Screen Navigation State (First-time open -> Welcome Screen)
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
+  const [pairingInitialStage, setPairingInitialStage] = useState<PairingStage>('idle');
+  const [pairingBannerMessage, setPairingBannerMessage] = useState<string>('');
 
   // Couple & Domain State
   const [couple, setCouple] = useState<CoupleData>(INITIAL_COUPLE);
@@ -38,6 +42,7 @@ export default function App() {
   const [activePlan, setActivePlan] = useState<DatePlan | null>(INITIAL_DATE_PLANS[0]);
   const [pointHistory, setPointHistory] = useState(INITIAL_POINT_HISTORY);
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [memories, setMemories] = useState<MemoryItem[]>(INITIAL_MEMORIES);
 
   // Modals & UI States
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -138,9 +143,63 @@ export default function App() {
     addPoints(5, 'Check-in vườn hoa mỗi ngày', couple.userA.name);
   };
 
-  const handleSaveMemory = () => {
+  // -----------------------------------------------------------------
+  // SHARED SPACE / MEMORIES HANDLERS (F06)
+  // -----------------------------------------------------------------
+  const handleAddMemory = (newMemory: Omit<MemoryItem, 'id' | 'createdAt' | 'likes' | 'isLiked'>) => {
+    const created: MemoryItem = {
+      ...newMemory,
+      id: `mem_${Date.now()}`,
+      likes: 1,
+      isLiked: true,
+      createdAt: 'Vừa xong',
+    };
+    setMemories(prev => [created, ...prev]);
+    addPoints(10, `Lưu ảnh kỷ niệm: ${newMemory.caption.slice(0, 20)}...`, newMemory.authorName);
     playSound('success');
-    addPoints(10, 'Lưu kỷ niệm tình yêu mới', couple.userA.name);
+    triggerHeartBurst();
+
+    setNotifications(prev => [
+      {
+        id: `notif_${Date.now()}`,
+        title: 'Kỷ niệm mới trong Không Gian Chung ✨',
+        message: `${newMemory.authorName} vừa lưu một bức ảnh mới: "${newMemory.caption.slice(0, 30)}..."`,
+        time: 'Vừa xong',
+        type: 'memory',
+        read: false,
+      },
+      ...prev
+    ]);
+  };
+
+  const handleEditMemory = (id: string, updated: Partial<MemoryItem>) => {
+    setMemories(prev => prev.map(m => m.id === id ? { ...m, ...updated } : m));
+    playSound('click');
+  };
+
+  const handleDeleteMemory = (id: string) => {
+    setMemories(prev => prev.filter(m => m.id !== id));
+    playSound('click');
+  };
+
+  const handleLikeMemory = (id: string) => {
+    setMemories(prev => prev.map(m => {
+      if (m.id === id) {
+        const nextLiked = !m.isLiked;
+        return {
+          ...m,
+          isLiked: nextLiked,
+          likes: nextLiked ? m.likes + 1 : Math.max(0, m.likes - 1)
+        };
+      }
+      return m;
+    }));
+    playSound('ping');
+  };
+
+  const handleSaveMemory = () => {
+    playSound('click');
+    setCurrentScreen('shared');
   };
 
   // -----------------------------------------------------------------
@@ -258,10 +317,53 @@ export default function App() {
 
   const handleUnpair = () => {
     playSound('error');
+    // Generate fresh clean 6-character code
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let freshCode = 'LV';
+    for (let i = 0; i < 4; i++) {
+      freshCode += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Reset couple state cleanly: User A stays logged in, partner B and shared data reset
     setCouple(prev => ({
       ...prev,
-      isPaired: false
+      coupleId: `CP-${freshCode}`,
+      pairCode: freshCode,
+      startDate: todayStr,
+      isPaired: false,
+      lovePoints: 0,
+      userB: {
+        id: '',
+        name: 'Chưa kết nối',
+        avatar: INITIAL_COUPLE.userB.avatar,
+        email: '',
+        status: 'Away',
+        isOnline: false,
+        batteryLevel: 0
+      }
     }));
+
+    // Reset interaction / checkin states
+    setHasCheckedInToday(false);
+    setPingSent(false);
+
+    // Add unpair notification
+    setNotifications(prev => [
+      {
+        id: `notif_${Date.now()}`,
+        title: 'Đã hủy kết nối cặp đôi',
+        message: 'Bạn đã hủy liên kết với người thương cũ. Mã ghép đôi mới đã sẵn sàng để gửi cho đối phương.',
+        time: 'Vừa xong',
+        type: 'status',
+        read: false
+      },
+      ...prev
+    ]);
+
+    // Direct transition to Pairing Screen at 'create' (màn hình gửi mã) stage
+    setPairingInitialStage('create');
+    setPairingBannerMessage('Đã hủy kết nối cặp đôi thành công. Mã ghép đôi mới đã sẵn sàng để gửi cho người ấy!');
     setCurrentScreen('pairing');
   };
 
@@ -272,7 +374,9 @@ export default function App() {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const isTabScreen = ['home', 'planner', 'garden', 'profile'].includes(currentScreen);
+  const isTabScreen = couple.isPaired 
+    ? ['home', 'shared', 'planner', 'garden', 'profile'].includes(currentScreen)
+    : ['pairing', 'profile'].includes(currentScreen);
   const isHomeScreen = currentScreen === 'home';
 
   return (
@@ -317,8 +421,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Top Sticky Header (for Tab Screens) */}
-        {isTabScreen && (
+        {/* Top Sticky Header (for Tab Screens when paired) */}
+        {isTabScreen && couple.isPaired && (
           <Header
             currentUser={couple.userA}
             unreadNotifications={unreadCount}
@@ -359,6 +463,8 @@ export default function App() {
                   userA: { ...prev.userA, email, name },
                   isPaired: false,
                 }));
+                setPairingInitialStage('idle');
+                setPairingBannerMessage('');
                 setCurrentScreen('pairing');
               }}
               onNavigateToLogin={() => {
@@ -384,6 +490,8 @@ export default function App() {
                 if (isAlreadyPaired) {
                   setCurrentScreen('home');
                 } else {
+                  setPairingInitialStage('idle');
+                  setPairingBannerMessage('');
                   setCurrentScreen('pairing');
                 }
               }}
@@ -410,6 +518,8 @@ export default function App() {
                 if (isAlreadyPaired) {
                   setCurrentScreen('home');
                 } else {
+                  setPairingInitialStage('idle');
+                  setPairingBannerMessage('');
                   setCurrentScreen('pairing');
                 }
               }}
@@ -421,14 +531,47 @@ export default function App() {
           {/* Couple Pairing Screen (5 bước: Chưa kết nối, Tạo mã 6 ký tự, Nhập mã, Chờ xác nhận, Ghép đôi thành công) */}
           {currentScreen === 'pairing' && (
             <PairingScreen
+              key={`pairing_${couple.pairCode}_${pairingInitialStage}`}
               myPairCode={couple.pairCode}
-              onBackToAuth={() => setCurrentScreen('welcome')}
-              onPairSuccess={(partnerName) => {
+              initialStage={pairingInitialStage}
+              currentUser={couple.userA}
+              bannerMessage={pairingBannerMessage}
+              onOpenProfile={() => setCurrentScreen('profile')}
+              onBackToAuth={() => {
+                setPairingBannerMessage('');
+                setCurrentScreen('welcome');
+              }}
+              onPairSuccess={(partnerInfo) => {
+                const partnerName = typeof partnerInfo === 'string' ? partnerInfo : partnerInfo.name;
+                const partnerEmail = typeof partnerInfo === 'string' ? 'sam@lovera.app' : (partnerInfo.email || 'sam@lovera.app');
+                const partnerAvatar = typeof partnerInfo === 'string' ? INITIAL_COUPLE.userB.avatar : (partnerInfo.avatar || INITIAL_COUPLE.userB.avatar);
                 setCouple(prev => ({
                   ...prev,
                   isPaired: true,
-                  userB: { ...prev.userB, name: partnerName }
+                  startDate: new Date().toISOString().split('T')[0],
+                  lovePoints: 100,
+                  userB: {
+                    ...prev.userB,
+                    id: 'usr_partner',
+                    name: partnerName,
+                    email: partnerEmail,
+                    avatar: partnerAvatar,
+                    status: 'Available',
+                    isOnline: true,
+                  }
                 }));
+                setPairingBannerMessage('');
+                setNotifications(prev => [
+                  {
+                    id: `notif_${Date.now()}`,
+                    title: 'Ghép đôi thành công!',
+                    message: `Bạn và ${partnerName} đã chính thức kết nối không gian yêu thương.`,
+                    time: 'Vừa xong',
+                    type: 'status',
+                    read: false
+                  },
+                  ...prev
+                ]);
                 setCurrentScreen('home');
               }}
             />
@@ -448,6 +591,7 @@ export default function App() {
           {currentScreen === 'home' && (
             <HomeScreen
               couple={couple}
+              recentMemories={memories}
               onOpenStatusModal={() => {
                 playSound('click');
                 setIsStatusModalOpen(true);
@@ -458,6 +602,28 @@ export default function App() {
               }}
               onSendLovePing={handleSendLovePing}
               pingSent={pingSent}
+              onNavigateToPairing={() => {
+                setPairingInitialStage('create');
+                setCurrentScreen('pairing');
+              }}
+              onNavigateToProfile={() => {
+                setCurrentScreen('profile');
+              }}
+              onNavigateToShared={() => {
+                setCurrentScreen('shared');
+              }}
+            />
+          )}
+
+          {currentScreen === 'shared' && (
+            <SharedSpaceScreen
+              couple={couple}
+              memories={memories}
+              onAddMemory={handleAddMemory}
+              onEditMemory={handleEditMemory}
+              onDeleteMemory={handleDeleteMemory}
+              onLikeMemory={handleLikeMemory}
+              onNavigateToHome={() => setCurrentScreen('home')}
             />
           )}
 
@@ -490,7 +656,23 @@ export default function App() {
               onOpenLoveDayModal={() => setIsLoveDayModalOpen(true)}
               onUnpair={handleUnpair}
               onLogout={handleLogout}
-              onResetDemoFlow={(scr) => setCurrentScreen(scr)}
+              onResetDemoFlow={(scr) => {
+                if (scr === 'pairing') {
+                  setPairingInitialStage('idle');
+                  setPairingBannerMessage('');
+                }
+                setCurrentScreen(scr);
+              }}
+              onNavigateToPairing={() => {
+                setPairingInitialStage('create');
+                setCurrentScreen('pairing');
+              }}
+              onUpdateUserName={(newName) => {
+                setCouple(prev => ({
+                  ...prev,
+                  userA: { ...prev.userA, name: newName }
+                }));
+              }}
             />
           )}
         </div>
@@ -500,6 +682,7 @@ export default function App() {
           <BottomNav
             currentScreen={currentScreen}
             isHome={currentScreen === 'home'}
+            isPaired={couple.isPaired}
             onNavigate={(scr) => {
               playSound('click');
               setCurrentScreen(scr);
