@@ -1,15 +1,30 @@
-# Dependencies
+# File cài đặt Node / npm ở thư mục gốc
+node.exe
+npm
+npm.*
+npx
+npx.*
+corepack*
+install_tools.bat
+nodevars.bat
+
+# .NET build output
+bin/
+obj/
+**/bin/
+**/obj/
+
+# Thư mục clone lồng nhau (nếu vô tình copy vào)
+Lovera-EXE201-main/
+Lovera-EXE201/
+
+# Node dependencies & outputs
 node_modules/
 **/node_modules/
-
-# Build outputs
 dist/
 **/dist/
-
-# Environment files
 .env
-.env.*
-!.env.example
-
-# Debug logs
+.env.local
+.env.*.local
+.vscode/
 *.log

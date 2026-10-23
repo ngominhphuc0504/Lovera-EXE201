@@ -1,6 +1,9 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace Lovera.Repository;
+
 public interface IUsersRepository
 {
     Task<UserAccount?> FindByEmail(string email, CancellationToken ct);
@@ -15,29 +18,223 @@ public interface IUsersRepository
     Task Save(CancellationToken ct);
     Task RevokeSessions(Guid userId, CancellationToken ct);
 }
+
 public sealed class UsersRepository(LoveraDbContext db) : IUsersRepository
 {
-    public Task<UserAccount?> FindByEmail(string email, CancellationToken ct) => db.Users.SingleOrDefaultAsync(x => x.Email == email, ct);
-    public Task<UserAccount?> FindById(Guid id, CancellationToken ct) => db.Users.SingleOrDefaultAsync(x => x.Id == id, ct);
-    public Task<UserSession?> FindSession(string tokenHash, CancellationToken ct) => db.Sessions.Include(x => x.User).SingleOrDefaultAsync(x => x.TokenHash == tokenHash, ct);
-    public Task<VerificationCode?> LatestCode(Guid userId, CancellationToken ct) => db.VerificationCodes.Where(x => x.UserId == userId && x.ConsumedAtUtc == null).OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(ct);
-    
-    
-    public Task<bool> HasCoupleHistory(Guid userId, CancellationToken ct) =>
-        db.CoupleMembers.AnyAsync(x => x.UserId == userId, ct);
-    public void RemoveUser(UserAccount user) => db.Users.Remove(user);
-    public void AddUser(UserAccount user) => db.Users.Add(user);
-    public void AddCode(VerificationCode code) => db.VerificationCodes.Add(code);
-    public void AddSession(UserSession session) => db.Sessions.Add(session);
-    public Task Save(CancellationToken ct) => db.SaveChangesAsync(ct);
-    
+    private static readonly ConcurrentDictionary<Guid, UserAccount> MemoryUsers = new();
+    private static readonly ConcurrentDictionary<string, UserSession> MemorySessions = new();
+    private static readonly List<VerificationCode> MemoryCodes = new();
+    private static readonly object SyncRoot = new();
+    private static bool _fallbackActive = false;
+
+    private static bool IsConnectionException(Exception ex)
+    {
+        return ex is NpgsqlException
+            || ex is System.Net.Sockets.SocketException
+            || ex is TimeoutException
+            || ex.InnerException is NpgsqlException
+            || ex.InnerException is System.Net.Sockets.SocketException
+            || (ex is InvalidOperationException && ex.InnerException != null && IsConnectionException(ex.InnerException));
+    }
+
+    public async Task<UserAccount?> FindByEmail(string email, CancellationToken ct)
+    {
+        if (!_fallbackActive)
+        {
+            try
+            {
+                return await db.Users.SingleOrDefaultAsync(x => x.Email == email, ct);
+            }
+            catch (Exception ex) when (IsConnectionException(ex))
+            {
+                _fallbackActive = true;
+            }
+        }
+
+        lock (SyncRoot)
+        {
+            return MemoryUsers.Values.SingleOrDefault(x => string.Equals(x.Email, email, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    public async Task<UserAccount?> FindById(Guid id, CancellationToken ct)
+    {
+        if (!_fallbackActive)
+        {
+            try
+            {
+                return await db.Users.SingleOrDefaultAsync(x => x.Id == id, ct);
+            }
+            catch (Exception ex) when (IsConnectionException(ex))
+            {
+                _fallbackActive = true;
+            }
+        }
+
+        lock (SyncRoot)
+        {
+            MemoryUsers.TryGetValue(id, out var user);
+            return user;
+        }
+    }
+
+    public async Task<UserSession?> FindSession(string tokenHash, CancellationToken ct)
+    {
+        if (!_fallbackActive)
+        {
+            try
+            {
+                return await db.Sessions.Include(x => x.User).SingleOrDefaultAsync(x => x.TokenHash == tokenHash, ct);
+            }
+            catch (Exception ex) when (IsConnectionException(ex))
+            {
+                _fallbackActive = true;
+            }
+        }
+
+        lock (SyncRoot)
+        {
+            if (MemorySessions.TryGetValue(tokenHash, out var session))
+            {
+                if (session.User is null && MemoryUsers.TryGetValue(session.UserId, out var user))
+                {
+                    session.User = user;
+                }
+                return session;
+            }
+            return null;
+        }
+    }
+
+    public async Task<VerificationCode?> LatestCode(Guid userId, CancellationToken ct)
+    {
+        if (!_fallbackActive)
+        {
+            try
+            {
+                return await db.VerificationCodes
+                    .Where(x => x.UserId == userId && x.ConsumedAtUtc == null)
+                    .OrderByDescending(x => x.CreatedAtUtc)
+                    .FirstOrDefaultAsync(ct);
+            }
+            catch (Exception ex) when (IsConnectionException(ex))
+            {
+                _fallbackActive = true;
+            }
+        }
+
+        lock (SyncRoot)
+        {
+            return MemoryCodes
+                .Where(x => x.UserId == userId && x.ConsumedAtUtc == null)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .FirstOrDefault();
+        }
+    }
+
+    public async Task<bool> HasCoupleHistory(Guid userId, CancellationToken ct)
+    {
+        if (!_fallbackActive)
+        {
+            try
+            {
+                return await db.CoupleMembers.AnyAsync(x => x.UserId == userId, ct);
+            }
+            catch (Exception ex) when (IsConnectionException(ex))
+            {
+                _fallbackActive = true;
+            }
+        }
+        return false;
+    }
+
+    public void RemoveUser(UserAccount user)
+    {
+        lock (SyncRoot)
+        {
+            MemoryUsers.TryRemove(user.Id, out _);
+        }
+        if (!_fallbackActive)
+        {
+            try { db.Users.Remove(user); } catch { _fallbackActive = true; }
+        }
+    }
+
+    public void AddUser(UserAccount user)
+    {
+        lock (SyncRoot)
+        {
+            MemoryUsers[user.Id] = user;
+        }
+        if (!_fallbackActive)
+        {
+            try { db.Users.Add(user); } catch { _fallbackActive = true; }
+        }
+    }
+
+    public void AddCode(VerificationCode code)
+    {
+        lock (SyncRoot)
+        {
+            MemoryCodes.Add(code);
+        }
+        if (!_fallbackActive)
+        {
+            try { db.VerificationCodes.Add(code); } catch { _fallbackActive = true; }
+        }
+    }
+
+    public void AddSession(UserSession session)
+    {
+        lock (SyncRoot)
+        {
+            MemorySessions[session.TokenHash] = session;
+        }
+        if (!_fallbackActive)
+        {
+            try { db.Sessions.Add(session); } catch { _fallbackActive = true; }
+        }
+    }
+
+    public async Task Save(CancellationToken ct)
+    {
+        if (!_fallbackActive)
+        {
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return;
+            }
+            catch (Exception ex) when (IsConnectionException(ex))
+            {
+                _fallbackActive = true;
+            }
+        }
+    }
+
     public async Task RevokeSessions(Guid userId, CancellationToken ct)
     {
-        var sessions = await db.Sessions
-            .Where(s => s.UserId == userId)
-            .ToListAsync(ct);
-
-        db.Sessions.RemoveRange(sessions);
+        lock (SyncRoot)
+        {
+            var keysToRemove = MemorySessions.Where(x => x.Value.UserId == userId).Select(x => x.Key).ToList();
+            foreach (var key in keysToRemove)
+            {
+                MemorySessions.TryRemove(key, out _);
+            }
+        }
+        if (!_fallbackActive)
+        {
+            try
+            {
+                var sessions = await db.Sessions
+                    .Where(s => s.UserId == userId)
+                    .ToListAsync(ct);
+                db.Sessions.RemoveRange(sessions);
+            }
+            catch (Exception ex) when (IsConnectionException(ex))
+            {
+                _fallbackActive = true;
+            }
+        }
     }
-    
 }

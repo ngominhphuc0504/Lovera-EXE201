@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { Heart, Sparkles, Droplets, ChevronRight, ArrowRight } from 'lucide-react';
 
 interface OnboardingScreenProps {
@@ -21,10 +21,10 @@ export const OnboardingScreen: React.FC<OnboardingScreenProps> = ({ onFinish }) 
     {
       title: 'Make every day special',
       viTitle: 'Mỗi ngày bên nhau đều đặc biệt',
-      subtitle: 'Bộ đếm ngày yêu rực rỡ và trợ lý AI Dating Planner gợi ý lịch trình hẹn hò vừa vặn với ngân sách.',
+      subtitle: 'Bộ đếm ngày yêu rực rỡ và trợ lý AI Dating Planner lắng nghe, tư vấn hẹn hò và thấu hiểu tình cảm cùng AI Chatbot.',
       icon: Sparkles,
       color: 'from-purple-500 to-rose-500',
-      badge: 'Love Day Counter & AI Planner',
+      badge: 'Love Day Counter & AI Chatbot',
       bgGlow: 'bg-purple-200/50'
     },
     {

@@ -72,11 +72,11 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
 
         return recoveryCode;
     }
-    public async Task Resend(string address, CancellationToken ct)
+    public async Task<string?> Resend(string address, CancellationToken ct)
     {
         var email = NormalizeEmail(address);
         var user = await users.FindByEmail(email, ct);
-        if (user is null || user.EmailVerified) return;
+        if (user is null || user.EmailVerified) return null;
         var now = clock.UtcNow;
         var previous = await users.LatestCode(user.Id, ct);
         if (previous is not null && now - previous.CreatedAtUtc < TimeSpan.FromSeconds(60)) throw new AppProblem(429, "resend_too_soon", "Vui lòng đợi 60 giây trước khi gửi lại mã.");
@@ -85,6 +85,7 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         users.AddCode(NewVerification(user.Id, code, now));
         await users.Save(ct);
         await mail.Send(email, code, ct);
+        return code;
     }
     public async Task Verify(VerifyRequest input, CancellationToken ct)
     {

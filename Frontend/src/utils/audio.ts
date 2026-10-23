@@ -1,5 +1,5 @@
 // Web Audio Synthesizer for gentle romantic micro-interactions
-export const playSound = (type: 'chime' | 'success' | 'water' | 'click' | 'error') => {
+export const playSound = (type: 'chime' | 'success' | 'water' | 'click' | 'error' | 'ping') => {
   try {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioCtx) return;
@@ -46,48 +46,53 @@ export const playSound = (type: 'chime' | 'success' | 'water' | 'click' | 'error
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.25);
-    } else {
-      // Default soft chime
+    } else if (type === 'ping') {
+      // Gentle high chime ping for heart/like
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(659.25, ctx.currentTime);
-      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1760, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.2);
+    } else {
+      // Default soft chime
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.15);
     }
   } catch {
-    // Graceful fallback for non-supported browsers
+    // Ignore audio autoplay restrictions
   }
 };
 
-/**
- * Calculates total days between Start Date and Current Date
- * Total_Days = Current_Date - Start_Date
- */
 export const calculateTotalDays = (startDateStr: string): number => {
-  if (!startDateStr) return 0;
-  const start = new Date(startDateStr);
-  const now = new Date();
-  // Strip time part for accurate date comparison
-  const startUtc = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate());
-  const nowUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
-
-  const diffMs = nowUtc - startUtc;
-  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  return Math.max(1, days);
+  try {
+    const start = new Date(startDateStr);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.max(1, diffDays);
+  } catch {
+    return 1;
+  }
 };
 
-/**
- * Formats a date string to friendly Vietnamese display
- */
 export const formatVNDate = (dateStr: string): string => {
   try {
     const d = new Date(dateStr);
-    return `Ngày ${d.getDate()} tháng ${d.getMonth() + 1}, ${d.getFullYear()}`;
+    return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
   } catch {
     return dateStr;
   }
