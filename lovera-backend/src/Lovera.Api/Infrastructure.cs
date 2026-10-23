@@ -30,16 +30,63 @@ public sealed class SessionAuthHandler(IOptionsMonitor<AuthenticationSchemeOptio
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name));
     }
 }
-public sealed class SmtpVerificationMail(IConfiguration config) : IVerificationMail
+public sealed class SmtpVerificationMail(
+    IConfiguration config,
+    ILogger<SmtpVerificationMail> logger) : IVerificationMail
 {
-    public async Task Send(string email, string code, CancellationToken ct)
+    public Task Send(string email, string code, CancellationToken ct) =>
+        SendCore(
+            email,
+            "LOVERA - Xác thực email",
+            $"Mã xác thực email: {code}\n" +
+            "Mã hết hạn sau 10 phút. Nếu bạn không đăng ký, hãy bỏ qua email này.",
+            ct);
+
+    public async Task SendPasswordReset(
+        string email, string code, CancellationToken ct)
     {
-        var host = config["Smtp:Host"] ?? throw new InvalidOperationException("Missing Smtp:Host");
-        var from = config["Smtp:From"] ?? throw new InvalidOperationException("Missing Smtp:From");
+        try
+        {
+            await SendCore(
+                email,
+                "LOVERA - Đặt lại mật khẩu",
+                $"Mã đặt lại mật khẩu: {code}\n" +
+                "Mã hết hạn sau 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.",
+                ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Không tiết lộ email nào có tài khoản qua phản hồi API.
+            logger.LogError(
+                "Password reset email delivery failed ({ErrorType}).",
+                ex.GetType().Name);
+        }
+    }
+
+    private async Task SendCore(
+        string email, string subject, string body, CancellationToken ct)
+    {
+        var host = config["Smtp:Host"]
+            ?? throw new InvalidOperationException("Missing Smtp:Host");
+        var from = config["Smtp:From"]
+            ?? throw new InvalidOperationException("Missing Smtp:From");
         var port = int.Parse(config["Smtp:Port"] ?? "25");
-        using var client = new SmtpClient(host, port) { EnableSsl = bool.Parse(config["Smtp:EnableSsl"] ?? "false") };
-        if (!string.IsNullOrEmpty(config["Smtp:Username"])) client.Credentials = new NetworkCredential(config["Smtp:Username"], config["Smtp:Password"]);
-        using var message = new MailMessage(from, email) { Subject = "LOVERA - Xác thực email", Body = $"Mã xác thực của bạn: {code}\nMã hết hạn sau 10 phút. Nếu bạn không đăng ký, hãy bỏ qua email này." };
+
+        using var client = new SmtpClient(host, port)
+        {
+            EnableSsl = bool.Parse(config["Smtp:EnableSsl"] ?? "false")
+        };
+
+        if (!string.IsNullOrEmpty(config["Smtp:Username"]))
+            client.Credentials = new NetworkCredential(
+                config["Smtp:Username"], config["Smtp:Password"]);
+
+        using var message = new MailMessage(from, email)
+        {
+            Subject = subject,
+            Body = body
+        };
+
         await client.SendMailAsync(message, ct);
     }
 }
