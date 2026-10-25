@@ -13,9 +13,17 @@ import {
   Camera,
   ChevronRight
 } from 'lucide-react';
-import { CoupleData, ConnectionStatusType, MemoryItem } from '../../types';
-import { INITIAL_ACTIVITY_OPTIONS } from '../../data/mockData';
+import { CoupleData, MemoryItem } from '../../types';
+import { INITIAL_ACTIVITY_OPTIONS, INITIAL_STATUS_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
+
+const getStatusLabel = (status: CoupleData['userA']['status']) =>
+  INITIAL_STATUS_OPTIONS.find(option => option.type === status)?.label ?? status;
+
+const getActivityLabel = (activity?: CoupleData['userA']['activity']) =>
+  activity
+    ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === activity)?.label ?? activity
+    : 'Chưa chọn hoạt động';
 
 interface HomeScreenProps {
   couple: CoupleData;
@@ -217,7 +225,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </div>
               <p className="text-[10px] text-stone-500 flex items-center gap-1 mt-0.5">
                 <Smile className="w-2.5 h-2.5 text-rose-400" />
-                <span>{userA.status === 'Available' ? 'Đang rảnh' : userA.status}</span>
+                <span>{getStatusLabel(userA.status)}</span>
               </p>
             </div>
           </div>
@@ -258,14 +266,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   </span>
                 ) : (
                   <span className="text-[9px] font-semibold text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
-                    {userB.availableAt ? `Rảnh: ${userB.availableAt}` : 'Offline'}
+                      {getStatusLabel(userB.status)}
                   </span>
                 )}
                 <h3 className="font-bold text-xs text-stone-900 leading-tight">{userB.name}</h3>
               </div>
               <p className="text-[10px] text-stone-500 flex items-center justify-end gap-0.5 mt-0.5">
                 <Flame className="w-2.5 h-2.5 text-amber-500" />
-                <span>{userB.status}</span>
+                <span>{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
               </p>
             </div>
           </div>
@@ -360,19 +368,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <span className="text-[10px] text-stone-400 font-semibold block mb-0.5">Bạn ({userA.name}):</span>
             <div className="font-bold text-stone-900 flex items-center gap-1">
               <span>✨</span>
-              <span>{userA.status === 'Available' ? 'Đang rảnh' : userA.status}</span>
+              <span>{getStatusLabel(userA.status)}</span>
             </div>
-            <span className="text-[10px] text-emerald-600 font-medium">Sẵn sàng trò chuyện</span>
+            <span className="text-[10px] text-emerald-600 font-medium">{getActivityLabel(userA.activity)}</span>
           </div>
 
           <div className="bg-purple-50/50 p-2.5 rounded-2xl border border-purple-100/80">
             <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{userB.name}:</span>
             <div className="font-bold text-stone-900 flex items-center gap-1">
-              <span>📚</span>
-              <span>{userB.status}</span>
+              <span>{userB.activity ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === userB.activity)?.icon : '💬'}</span>
+              <span>{getStatusLabel(userB.status)}</span>
             </div>
             <span className="text-[10px] text-purple-700 font-medium">
-              {userB.availableAt ? `Dự kiến: ${userB.availableAt}` : 'Đang bận việc'}
+              {getActivityLabel(userB.activity)}
             </span>
           </div>
         </div>

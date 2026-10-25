@@ -327,13 +327,13 @@ export default function App() {
   // -----------------------------------------------------------------
   // CONNECTION STATUS & LOVE DAY UPDATES
   // -----------------------------------------------------------------
-  const handleSaveStatus = (status: ConnectionStatusType, availableAt: string) => {
+  const handleSaveStatus = (status: ConnectionStatusType, activity?: ConnectionActivityType) => {
     setCouple(prev => ({
       ...prev,
       userA: {
         ...prev.userA,
         status,
-        availableAt: availableAt ? `Rảnh lúc ${availableAt}` : 'Ngay bây giờ'
+        activity
       }
     }));
     setIsStatusModalOpen(false);
@@ -755,7 +755,7 @@ export default function App() {
         {isStatusModalOpen && (
           <StatusModal
             currentStatus={couple.userA.status}
-            currentAvailableAt={couple.userA.availableAt}
+            currentActivity={couple.userA.activity}
             onClose={() => setIsStatusModalOpen(false)}
             onSave={handleSaveStatus}
           />
