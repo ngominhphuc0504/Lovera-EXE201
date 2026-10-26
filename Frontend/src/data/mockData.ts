@@ -6,6 +6,30 @@ export { avatarAlex, avatarSam };
 
 export const INITIAL_STATUS_OPTIONS: ConnectionStatusOption[] = [
   {
+    type: 'Available',
+    label: 'Đang rảnh',
+    icon: '✨',
+    description: 'Sẵn sàng tâm sự cùng người yêu',
+    badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  },
+  {
+    type: 'Busy',
+    label: 'Đang bận',
+    icon: '⏳',
+    description: 'Hiện chưa thể trò chuyện',
+    badgeColor: 'bg-amber-50 text-amber-700 border-amber-200'
+  },
+  {
+    type: 'Away',
+    label: 'Tạm vắng',
+    icon: '🌙',
+    description: 'Tạm thời không có mặt',
+    badgeColor: 'bg-stone-50 text-stone-700 border-stone-200'
+  }
+];
+
+export const INITIAL_ACTIVITY_OPTIONS: ConnectionActivityOption[] = [
+  {
     type: 'Studying',
     label: 'Đang học bài',
     icon: '📚',
@@ -39,17 +63,8 @@ export const INITIAL_STATUS_OPTIONS: ConnectionStatusOption[] = [
     icon: '☕',
     description: 'Thư giãn, đọc sách hoặc thể thao',
     badgeColor: 'bg-rose-50 text-rose-700 border-rose-200'
-  },
-  {
-    type: 'Available',
-    label: 'Đang rảnh',
-    icon: '✨',
-    description: 'Sẵn sàng tâm sự cùng người yêu',
-    badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200'
   }
 ];
-
-export const INITIAL_ACTIVITY_OPTIONS = INITIAL_STATUS_OPTIONS;
 
 export const INITIAL_COUPLE: CoupleData = {
   coupleId: 'CP-LOVERA-2025',
@@ -63,7 +78,6 @@ export const INITIAL_COUPLE: CoupleData = {
     avatar: avatarAlex,
     email: 'alex@lovera.app',
     status: 'Available',
-    availableAt: 'Ngay bây giờ',
     isOnline: true,
     batteryLevel: 88
   },
@@ -72,8 +86,8 @@ export const INITIAL_COUPLE: CoupleData = {
     name: 'Sam',
     avatar: avatarSam,
     email: 'sam@lovera.app',
-    status: 'Studying',
-    availableAt: '16:30',
+    status: 'Busy',
+    activity: 'Studying',
     isOnline: false,
     batteryLevel: 62
   }
