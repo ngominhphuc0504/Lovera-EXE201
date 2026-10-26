@@ -1,4 +1,4 @@
-﻿import { ConnectionActivityOption, ConnectionStatusOption, CoupleData, DatePlan, PointHistoryItem, AppNotification, MemoryItem } from '../types';
+import { ConnectionActivityOption, ConnectionStatusOption, CoupleData, DatePlan, PointHistoryItem, AppNotification, MemoryItem } from '../types';
 import avatarAlex from '../assets/images/partner_avatar_alex_1790144456462.jpg';
 import avatarSam from '../assets/images/partner_avatar_sam_1790144470464.jpg';
 
@@ -138,10 +138,10 @@ export const INITIAL_DATE_PLANS: DatePlan[] = [
 export const INITIAL_POINT_HISTORY: PointHistoryItem[] = [
   {
     id: 'pt_1',
-    action: 'Hoàn thành buổi hẹn "Làm Bánh Ngọt"',
-    points: 20,
+    action: 'Bón phân hữu cơ & vun xới đất',
+    points: 10,
     timestamp: 'Hôm qua, 20:30',
-    by: 'Alex & Sam'
+    by: 'Alex'
   },
   {
     id: 'pt_2',
@@ -152,10 +152,10 @@ export const INITIAL_POINT_HISTORY: PointHistoryItem[] = [
   },
   {
     id: 'pt_3',
-    action: 'Check-in vườn hoa mỗi ngày',
+    action: 'Tưới nước cho cây tình yêu',
     points: 5,
     timestamp: 'Hôm nay, 08:00',
-    by: 'Sam'
+    by: 'Alex'
   },
 ];
 

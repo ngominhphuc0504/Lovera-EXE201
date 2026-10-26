@@ -19,6 +19,7 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   suggestions?: string[];
+  isGemini?: boolean;
 }
 
 export type MemoryTag = 'Hẹn hò' | 'Kỷ niệm' | 'Du lịch' | 'Đời thường' | 'Khoảnh khắc';
@@ -113,7 +114,9 @@ export interface DatePlan {
   createdAt: string;
 }
 
-export type GardenStage = 1 | 2 | 3 | 4;
+export type GardenStage = 1 | 2 | 3 | 4 | 5;
+
+export type GardenSeason = 'spring' | 'summer' | 'autumn' | 'winter';
 
 export interface PointHistoryItem {
   id: string;

@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Heart, 
   Image as ImageIcon, 
@@ -113,7 +113,6 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   const [newDate, setNewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [newLocation, setNewLocation] = useState<string>('');
   const [newTag, setNewTag] = useState<MemoryTag>('Hẹn hò');
-  const [newAuthor, setNewAuthor] = useState<Partner>(userA);
   const [customFilePreview, setCustomFilePreview] = useState<string>('');
 
   // Edit form state
@@ -161,7 +160,6 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
     }
     setNewDate(new Date().toISOString().split('T')[0]);
     setNewLocation('');
-    setNewAuthor(userA);
     setIsAddModalOpen(true);
   };
 
@@ -179,8 +177,8 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
       date: newDate,
       location: newLocation.trim() || 'Nơi hẹn hò thân quen',
       tag: newTag,
-      authorName: newAuthor.name,
-      authorAvatar: newAuthor.avatar,
+      authorName: userA.name,
+      authorAvatar: userA.avatar,
     });
 
     setIsAddModalOpen(false);
@@ -726,51 +724,22 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 </div>
               </div>
 
-              {/* Tag & Author Selection */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                    5. Chủ đề:
-                  </label>
-                  <select
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value as MemoryTag)}
-                    className="w-full p-2 bg-stone-50 rounded-xl border border-stone-200 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
-                  >
-                    <option value="Hẹn hò">Hẹn hò</option>
-                    <option value="Kỷ niệm">Kỷ niệm</option>
-                    <option value="Du lịch">Du lịch</option>
-                    <option value="Đời thường">Đời thường</option>
-                    <option value="Khoảnh khắc">Khoảnh khắc</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                    6. Người đăng:
-                  </label>
-                  <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setNewAuthor(userA)}
-                      className={`flex-1 p-1 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 transition-all ${
-                        newAuthor.id === userA.id ? 'bg-rose-50 border-rose-300 text-rose-700 ring-1 ring-rose-200' : 'bg-stone-50 border-stone-200 text-stone-600'
-                      }`}
-                    >
-                      <img src={userA.avatar} alt={userA.name} className="w-3.5 h-3.5 rounded-full object-cover" />
-                      <span>{userA.name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewAuthor(userB)}
-                      className={`flex-1 p-1 rounded-xl border text-[11px] font-semibold flex items-center justify-center gap-1 transition-all ${
-                        newAuthor.id === userB.id ? 'bg-purple-50 border-purple-300 text-purple-700 ring-1 ring-purple-200' : 'bg-stone-50 border-stone-200 text-stone-600'
-                      }`}
-                    >
-                      <img src={userB.avatar} alt={userB.name} className="w-3.5 h-3.5 rounded-full object-cover" />
-                      <span>{userB.name}</span>
-                    </button>
-                  </div>
-                </div>
+              {/* Tag Selection */}
+              <div>
+                <label className="block text-[11px] font-bold text-stone-700 mb-1">
+                  5. Chủ đề:
+                </label>
+                <select
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value as MemoryTag)}
+                  className="w-full p-2 bg-stone-50 rounded-xl border border-stone-200 text-xs text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                >
+                  <option value="Hẹn hò">Hẹn hò</option>
+                  <option value="Kỷ niệm">Kỷ niệm</option>
+                  <option value="Du lịch">Du lịch</option>
+                  <option value="Đời thường">Đời thường</option>
+                  <option value="Khoảnh khắc">Khoảnh khắc</option>
+                </select>
               </div>
 
               {/* Submit CTA */}

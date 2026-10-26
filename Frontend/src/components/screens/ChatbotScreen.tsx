@@ -13,10 +13,23 @@ import {
   HelpCircle,
   Copy,
   Check,
-  Award
+  Award,
+  KeyRound,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Trash2,
+  X,
+  ShieldCheck
 } from 'lucide-react';
 import { CoupleData, ChatMessage } from '../../types';
 import { playSound } from '../../utils/audio';
+import {
+  generateGeminiReply,
+  getGeminiApiKey,
+  setGeminiApiKey,
+  isGeminiConfigured
+} from '../../services/geminiService';
 
 interface ChatbotScreenProps {
   couple: CoupleData;
@@ -65,8 +78,23 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showBanner, setShowBanner] = useState(true);
+  const [geminiActive, setGeminiActive] = useState<boolean>(() => isGeminiConfigured());
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [showKeyText, setShowKeyText] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-hide Gamification Banner after 5 seconds
+  useEffect(() => {
+    if (!showBanner) return;
+    const timer = setTimeout(() => {
+      setShowBanner(false);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [showBanner]);
 
   useEffect(() => {
     try {
@@ -176,7 +204,38 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     };
   };
 
-  const handleSend = (textToSend?: string) => {
+  const handleOpenKeyModal = () => {
+    setApiKeyInput(getGeminiApiKey());
+    setShowKeyText(false);
+    setSaveStatus(null);
+    setIsKeyModalOpen(true);
+  };
+
+  const handleSaveKey = () => {
+    setGeminiApiKey(apiKeyInput);
+    const active = isGeminiConfigured();
+    setGeminiActive(active);
+    setSaveStatus(active ? 'Đã kích hoạt Gemini AI thành công! ✨' : 'Đã xóa API Key');
+    playSound('chime');
+    setTimeout(() => {
+      setIsKeyModalOpen(false);
+      setSaveStatus(null);
+    }, 800);
+  };
+
+  const handleRemoveKey = () => {
+    setGeminiApiKey('');
+    setApiKeyInput('');
+    setGeminiActive(false);
+    setSaveStatus('Đã xóa API Key!');
+    playSound('click');
+    setTimeout(() => {
+      setIsKeyModalOpen(false);
+      setSaveStatus(null);
+    }, 800);
+  };
+
+  const handleSend = async (textToSend?: string) => {
     const query = (textToSend || input).trim();
     if (!query || isTyping) return;
 
@@ -188,28 +247,47 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       timestamp: 'Vừa xong'
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    const updatedMessages = [...messages, userMsg];
+    setMessages(updatedMessages);
     setInput('');
     setIsTyping(true);
 
-    // Simulate natural AI thinking time (700ms - 1100ms)
-    setTimeout(() => {
-      const replyData = generateBotReply(query);
+    try {
+      const replyData = await generateGeminiReply(
+        query,
+        updatedMessages,
+        couple,
+        generateBotReply
+      );
+
       const botMsg: ChatMessage = {
         id: `bot_${Date.now()}`,
         sender: 'bot',
         text: replyData.text,
         timestamp: 'Vừa xong',
-        suggestions: replyData.suggestions
+        suggestions: replyData.suggestions,
+        isGemini: replyData.isGeminiPowered
       };
 
       setMessages(prev => [...prev, botMsg]);
-      setIsTyping(false);
       playSound('chime');
-
-      // Earn points for interacting with AI Cupid
       onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
-    }, 850);
+    } catch (err) {
+      console.error('Error generating reply:', err);
+      const fallback = generateBotReply(query);
+      const botMsg: ChatMessage = {
+        id: `bot_${Date.now()}`,
+        sender: 'bot',
+        text: fallback.text,
+        timestamp: 'Vừa xong',
+        suggestions: fallback.suggestions,
+        isGemini: false
+      };
+      setMessages(prev => [...prev, botMsg]);
+      playSound('chime');
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const handleResetChat = () => {
@@ -217,6 +295,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       playSound('click');
       setMessages(INITIAL_MESSAGES);
       localStorage.removeItem('lovera_chat_history');
+      setShowBanner(true);
     }
   };
 
@@ -228,7 +307,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-stone-50 select-none pb-20 sm:pb-22">
+    <div className="flex flex-col h-full bg-stone-50 select-none pb-[58px] sm:pb-[60px]">
       
       {/* ------------------------------------------------------------- */}
       {/* 1. TOP CHATBOT HEADER                                         */}
@@ -239,7 +318,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-rose-500 via-pink-500 to-purple-600 flex items-center justify-center text-white shadow-xs ring-2 ring-rose-200">
               <Bot className="w-5 h-5" />
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></span>
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${geminiActive ? 'bg-purple-500 animate-pulse' : 'bg-emerald-500'}`}></span>
           </div>
 
           <div>
@@ -247,10 +326,19 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
               <h2 className="text-sm font-bold text-stone-900 leading-tight">
                 Lovera AI Assistant
               </h2>
-              <span className="text-[10px] bg-rose-50 text-rose-600 font-bold px-1.5 py-0.2 rounded-full border border-rose-200 flex items-center gap-0.5">
-                <Sparkles className="w-2.5 h-2.5 text-rose-500" />
-                <span>AI 2.0</span>
-              </span>
+              <button
+                type="button"
+                onClick={handleOpenKeyModal}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 transition-all cursor-pointer ${
+                  geminiActive
+                    ? 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
+                    : 'bg-stone-50 text-stone-500 border-stone-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200'
+                }`}
+                title="Cấu hình Google Gemini AI"
+              >
+                <Sparkles className={`w-2.5 h-2.5 ${geminiActive ? 'text-purple-600' : 'text-stone-400'}`} />
+                <span>{geminiActive ? 'Gemini 2.5' : 'Bật Gemini'}</span>
+              </button>
             </div>
             <p className="text-[11px] text-stone-500 flex items-center gap-1">
               <span>Trợ lý tình yêu 1:1 cho {couple.userA.name} & {couple.userB.name}</span>
@@ -260,6 +348,19 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
 
         <div className="flex items-center gap-1.5">
           <button
+            type="button"
+            onClick={handleOpenKeyModal}
+            title="Cài đặt Gemini API Key"
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
+              geminiActive
+                ? 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-600 shadow-2xs'
+                : 'bg-stone-50 hover:bg-stone-100 border-stone-200 text-stone-500'
+            }`}
+          >
+            <KeyRound className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
             onClick={handleResetChat}
             title="Làm mới cuộc trò chuyện"
             className="w-8 h-8 rounded-xl bg-stone-50 hover:bg-stone-100 border border-stone-200 text-stone-500 flex items-center justify-center transition-colors active:scale-95"
@@ -269,14 +370,16 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
         </div>
       </header>
 
-      {/* Gamification Banner */}
-      <div className="bg-gradient-to-r from-rose-50 via-pink-50 to-purple-50 px-4 py-1.5 border-b border-rose-100/60 flex items-center justify-between text-[11px] text-rose-700 font-medium">
-        <span className="flex items-center gap-1">
-          <Award className="w-3.5 h-3.5 text-rose-500" />
-          <span>Nhận <strong>+5 Love Points</strong> mỗi lượt tâm sự cùng AI</span>
-        </span>
-        <span className="text-rose-500 font-bold">🌸 Love Garden</span>
-      </div>
+      {/* Gamification Banner (Tự động biến mất sau 5s) */}
+      {showBanner && (
+        <div className="bg-gradient-to-r from-rose-50 via-pink-50 to-purple-50 px-4 py-1.5 border-b border-rose-100/60 flex items-center justify-between text-[11px] text-rose-700 font-medium transition-all duration-500 animate-fade-in">
+          <span className="flex items-center gap-1">
+            <Award className="w-3.5 h-3.5 text-rose-500" />
+            <span>Nhận <strong>+5 Love Points</strong> mỗi lượt tâm sự cùng AI</span>
+          </span>
+          <span className="text-rose-500 font-bold">🌸 Love Garden</span>
+        </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 2. CHAT MESSAGE THREAD                                        */}
@@ -313,6 +416,13 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                       : 'bg-white text-stone-800 border border-rose-100/80 rounded-bl-xs'
                   }`}
                 >
+                  {!isUser && msg.isGemini && (
+                    <div className="inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-100 via-pink-100 to-rose-100 text-purple-800 text-[10px] font-bold border border-purple-200/60 shadow-2xs">
+                      <Sparkles className="w-3 h-3 text-purple-600 animate-spin [animation-duration:4s]" />
+                      <span>Gemini Flash</span>
+                    </div>
+                  )}
+
                   <div className="whitespace-pre-line font-normal">
                     {msg.text}
                   </div>
@@ -397,7 +507,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           e.preventDefault();
           handleSend();
         }}
-        className="p-3 bg-white border-t border-rose-100 flex items-center gap-2 shrink-0"
+        className="px-3 py-2 bg-white border-t border-rose-100 flex items-center gap-2 shrink-0"
       >
         <button
           type="button"
@@ -425,6 +535,117 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           <Send className="w-4 h-4" />
         </button>
       </form>
+
+      {/* ------------------------------------------------------------- */}
+      {/* 5. GEMINI API KEY CONFIGURATION MODAL                         */}
+      {/* ------------------------------------------------------------- */}
+      {isKeyModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-rose-100 overflow-hidden animate-scale-up">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-rose-500 via-pink-500 to-purple-600 p-5 text-white flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center text-white ring-1 ring-white/30">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base leading-snug">Cấu Hình Google Gemini AI</h3>
+                  <p className="text-white/80 text-xs">Trợ lý tình yêu thông minh thế hệ mới</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsKeyModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4">
+              <div className="bg-purple-50/70 border border-purple-100 rounded-2xl p-3 text-xs text-purple-900 leading-relaxed flex items-start gap-2.5">
+                <ShieldCheck className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-purple-950">Bảo mật thiết bị</p>
+                  <p className="text-stone-600 text-[11px] mt-0.5">
+                    API key được lưu an toàn trên trình duyệt của bạn và chỉ gửi trực tiếp tới máy chủ Google GenAI khi tạo phản hồi.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-800 mb-1.5">
+                  Google Gemini API Key
+                </label>
+                <div className="relative">
+                  <input
+                    type={showKeyText ? 'text' : 'password'}
+                    value={apiKeyInput}
+                    onChange={(e) => setApiKeyInput(e.target.value)}
+                    placeholder="Dán AIzaSy..."
+                    className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3.5 py-2.5 text-xs text-stone-800 pr-10 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowKeyText(!showKeyText)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer"
+                  >
+                    {showKeyText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-[11px] text-stone-500 flex items-center justify-between">
+                <span>Chưa có API Key miễn phí?</span>
+                <a
+                  href="https://aistudio.google.com/app/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-600 hover:text-purple-700 font-semibold inline-flex items-center gap-1 underline underline-offset-2"
+                >
+                  Lấy key tại Google AI Studio
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+
+              {saveStatus && (
+                <div className="text-center text-xs font-medium text-emerald-600 bg-emerald-50 py-2 rounded-xl border border-emerald-200">
+                  {saveStatus}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-2">
+                {geminiActive && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveKey}
+                    className="px-3 py-2.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Xóa</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsKeyModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-medium transition-colors cursor-pointer"
+                >
+                  Đóng
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveKey}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white text-xs font-bold shadow-xs transition-all active:scale-95 cursor-pointer"
+                >
+                  Lưu & Áp Dụng
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

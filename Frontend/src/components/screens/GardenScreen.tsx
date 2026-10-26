@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Droplets, 
   Sparkles, 
@@ -14,10 +14,12 @@ import {
   Clock,
   Filter,
   User,
-  Users
+  Users,
+  Award
 } from 'lucide-react';
-import { CoupleData, PointHistoryItem } from '../../types';
+import { CoupleData, PointHistoryItem, GardenStage, GardenSeason } from '../../types';
 import { playSound } from '../../utils/audio';
+import { GardenTreeVisual } from './GardenTreeVisual';
 
 interface GardenScreenProps {
   couple: CoupleData;
@@ -50,12 +52,42 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
   // Stage 1: Hạt Mầm Trái Tim (0 – 99 pts)
   // Stage 2: Cây Non Đâm Chồi (100 – 299 pts)
   // Stage 3: Hoa Hồng Nở Rộ (300 – 499 pts)
-  // Stage 4: Cây Đại Thụ Hạnh Phúc (500+ pts)
-  const realStage = lovePoints >= 500 ? 4 : lovePoints >= 300 ? 3 : lovePoints >= 100 ? 2 : 1;
-  const [previewStage, setPreviewStage] = useState<number>(realStage);
+  // Stage 4: Cây Đại Thụ Hạnh Phúc (500 – 999 pts)
+  // Stage 5: Cổ Thụ Bách Niên Bốn Mùa (1000+ pts)
+  const realStage: GardenStage = lovePoints >= 1000 ? 5 : lovePoints >= 500 ? 4 : lovePoints >= 300 ? 3 : lovePoints >= 100 ? 2 : 1;
+  const [previewStage, setPreviewStage] = useState<GardenStage>(realStage);
 
-  // Filter history by contributor
-  const [historyFilter, setHistoryFilter] = useState<'all' | 'alex' | 'sam'>('all');
+  // Active season state with persistence
+  const [selectedSeason, setSelectedSeason] = useState<GardenSeason>(() => {
+    try {
+      const saved = localStorage.getItem('lovera_garden_season') as GardenSeason;
+      if (['spring', 'summer', 'autumn', 'winter'].includes(saved)) {
+        return saved;
+      }
+    } catch {
+      // ignore
+    }
+    const m = new Date().getMonth() + 1;
+    if (m >= 3 && m <= 5) return 'spring';
+    if (m >= 6 && m <= 8) return 'summer';
+    if (m >= 9 && m <= 11) return 'autumn';
+    return 'winter';
+  });
+
+  // Update preview stage when points grow
+  useEffect(() => {
+    setPreviewStage(realStage);
+  }, [realStage]);
+
+  const handleSelectSeason = (season: GardenSeason) => {
+    playSound('click');
+    setSelectedSeason(season);
+    try {
+      localStorage.setItem('lovera_garden_season', season);
+    } catch {
+      // ignore
+    }
+  };
 
   const STAGE_DETAILS = {
     1: {
@@ -91,14 +123,59 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
     4: {
       title: 'Cấp 4: Cây Đại Thụ Hạnh Phúc',
       sub: 'Trĩu quả ngọt ngào & vĩnh cửu',
-      range: '500+ Pts',
+      range: '500 – 999 Pts',
       desc: 'Cây đại thụ tình yêu vươn cao rợp bóng mát, kết trái ngọt hạnh phúc, là minh chứng bền chặt cho chặng đường yêu thương của hai bạn.',
       minPts: 500,
       nextTarget: 1000,
       icon: '🌳',
       tagColor: 'bg-purple-50 text-purple-700 border-purple-200'
+    },
+    5: {
+      title: 'Cấp 5: Cổ Thụ Bách Niên Bốn Mùa',
+      sub: 'Tình yêu trường tồn qua bốn mùa',
+      range: '1000+ Pts',
+      desc: 'Cổ thụ thần thoại uy nghiêm với thân đôi gắn kết ngàn năm, biến đổi cảnh sắc diệu kỳ qua bốn mùa Xuân - Hạ - Thu - Đông, tượng trưng cho tình yêu bách niên giai lão.',
+      minPts: 1000,
+      nextTarget: 2000,
+      icon: '✨',
+      tagColor: 'bg-gradient-to-r from-amber-50 to-purple-50 text-purple-900 border-purple-200'
     }
-  }[previewStage as 1 | 2 | 3 | 4];
+  }[previewStage];
+
+  const SEASON_CONFIG = {
+    spring: {
+      name: 'Mùa Xuân',
+      icon: '🌸',
+      tagline: 'Hoa nở rực rỡ • Tình xuân ấm áp',
+      bgGradient: 'from-pink-200/90 via-rose-100/70 to-emerald-100/80',
+      borderColor: 'border-pink-300/80',
+      sunColor: 'text-rose-400 fill-pink-300',
+    },
+    summer: {
+      name: 'Mùa Hạ',
+      icon: '☀️',
+      tagline: 'Nắng vàng chan hòa • Trái ngọt sum suê',
+      bgGradient: 'from-sky-200/80 via-emerald-100/60 to-emerald-200/90',
+      borderColor: 'border-emerald-300/80',
+      sunColor: 'text-amber-400 fill-amber-300',
+    },
+    autumn: {
+      name: 'Mùa Thu',
+      icon: '🍁',
+      tagline: 'Lá phong nhuộm vàng • Chiều thu lãng mạn',
+      bgGradient: 'from-amber-200/85 via-orange-100/70 to-amber-100/80',
+      borderColor: 'border-amber-300/80',
+      sunColor: 'text-orange-400 fill-amber-300',
+    },
+    winter: {
+      name: 'Mùa Đông',
+      icon: '❄️',
+      tagline: 'Tuyết phủ tinh khôi • Sưởi ấm tim nhau',
+      bgGradient: 'from-slate-200/90 via-blue-100/70 to-indigo-100/80',
+      borderColor: 'border-sky-300/80',
+      sunColor: 'text-sky-300 fill-sky-200',
+    },
+  }[selectedSeason];
 
   // Calculate progress percent to next stage for current real points
   const progressPercent = realStage === 1 
@@ -107,6 +184,8 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
     ? Math.min(100, Math.floor(((lovePoints - 100) / 200) * 100))
     : realStage === 3
     ? Math.min(100, Math.floor(((lovePoints - 300) / 200) * 100))
+    : realStage === 4
+    ? Math.min(100, Math.floor(((lovePoints - 500) / 500) * 100))
     : 100;
 
   const pointsToNextStage = realStage === 1
@@ -115,13 +194,14 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
     ? 300 - lovePoints
     : realStage === 3
     ? 500 - lovePoints
+    : realStage === 4
+    ? 1000 - lovePoints
     : 0;
 
-  // Filter history
-  const filteredHistory = history.filter((item) => {
-    if (historyFilter === 'alex') return item.by.toLowerCase().includes('alex');
-    if (historyFilter === 'sam') return item.by.toLowerCase().includes('sam');
-    return true;
+  // Lịch sử chăm sóc của chính chủ (userA)
+  const userHistory = history.filter((item) => {
+    const byLower = item.by.toLowerCase();
+    return byLower.includes(userA.name.toLowerCase()) || !byLower.includes(userB.name.toLowerCase());
   });
 
   // Calculate contributor stats
@@ -143,7 +223,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
   };
 
   return (
-    <div className="space-y-4 pb-28 pt-2 text-stone-800 select-none">
+    <div className="space-y-4 pb-16 sm:pb-20 pt-2 text-stone-800 select-none">
       
       {/* ------------------------------------------------------------- */}
       {/* 1. GARDEN HEADER & STATS                                      */}
@@ -168,13 +248,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 2. REALISTIC BOTANICAL GARDEN CANVAS                          */}
       {/* ------------------------------------------------------------- */}
-      <div className="mx-4 rounded-3xl bg-gradient-to-b from-sky-200/80 via-emerald-100/60 to-emerald-200/90 border border-emerald-300/80 shadow-md p-4 relative overflow-hidden text-stone-800">
+      <div className={`mx-4 rounded-3xl bg-gradient-to-b ${SEASON_CONFIG.bgGradient} border ${SEASON_CONFIG.borderColor} shadow-md p-4 relative overflow-hidden text-stone-800 transition-all duration-700`}>
         
         {/* Sky Background Elements: Sun & Clouds */}
         <div className="absolute top-2 right-3 flex items-center gap-2 pointer-events-none z-0">
           <div className="relative">
-            <Sun className={`w-10 h-10 text-amber-400 fill-amber-300 ${isSunbathing ? 'animate-spin' : 'animate-soft-float'}`} />
-            <div className="absolute inset-0 bg-amber-400/30 rounded-full blur-md"></div>
+            <Sun className={`w-10 h-10 ${SEASON_CONFIG.sunColor} ${isSunbathing ? 'animate-spin' : 'animate-soft-float'}`} />
+            <div className="absolute inset-0 bg-amber-400/20 rounded-full blur-md"></div>
           </div>
         </div>
 
@@ -182,107 +262,109 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
         <div className="absolute top-4 left-6 w-16 h-5 bg-white/70 rounded-full blur-xs pointer-events-none"></div>
         <div className="absolute top-8 left-16 w-12 h-4 bg-white/50 rounded-full blur-xs pointer-events-none"></div>
 
-        {/* Floating Butterflies & Cherry Petals */}
-        <div className="absolute top-14 left-4 text-base animate-bounce [animation-duration:3s] pointer-events-none">🦋</div>
-        <div className="absolute top-20 right-8 text-sm animate-bounce [animation-duration:2.4s] pointer-events-none">🌸</div>
-        <div className="absolute top-32 left-10 text-xs animate-soft-float pointer-events-none">✨</div>
+        {/* Seasonal Falling Particles Overlay */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
+          {selectedSeason === 'spring' && (
+            <>
+              <span className="absolute top-0 left-[8%] text-sm animate-falling-petal [animation-delay:0s]">🌸</span>
+              <span className="absolute top-0 left-[26%] text-xs animate-falling-petal [animation-delay:2.4s]">🌸</span>
+              <span className="absolute top-0 left-[48%] text-sm animate-falling-petal [animation-delay:4.2s]">🌺</span>
+              <span className="absolute top-0 left-[68%] text-xs animate-falling-petal [animation-delay:1.6s]">🌸</span>
+              <span className="absolute top-0 left-[86%] text-sm animate-falling-petal [animation-delay:3.5s]">🌸</span>
+              <span className="absolute top-14 left-4 text-base animate-bounce [animation-duration:3.2s]">🦋</span>
+            </>
+          )}
+          {selectedSeason === 'summer' && (
+            <>
+              <span className="absolute top-8 left-[18%] w-2 h-2 rounded-full bg-yellow-300 blur-[0.5px] animate-firefly [animation-delay:0.3s]"></span>
+              <span className="absolute top-16 left-[72%] w-2.5 h-2.5 rounded-full bg-emerald-300 blur-[0.5px] animate-firefly [animation-delay:1.7s]"></span>
+              <span className="absolute top-28 left-[35%] w-2 h-2 rounded-full bg-yellow-200 blur-[0.5px] animate-firefly [animation-delay:2.8s]"></span>
+              <span className="absolute top-36 left-[82%] w-2 h-2 rounded-full bg-lime-300 blur-[0.5px] animate-firefly [animation-delay:0.9s]"></span>
+              <span className="absolute top-14 left-4 text-sm animate-soft-float">🐝</span>
+              <span className="absolute top-22 right-8 text-xs animate-pulse">✨</span>
+            </>
+          )}
+          {selectedSeason === 'autumn' && (
+            <>
+              <span className="absolute top-0 left-[14%] text-sm animate-falling-leaf [animation-delay:0.2s]">🍁</span>
+              <span className="absolute top-0 left-[34%] text-xs animate-falling-leaf [animation-delay:2.5s]">🍂</span>
+              <span className="absolute top-0 left-[58%] text-sm animate-falling-leaf [animation-delay:4.4s]">🍁</span>
+              <span className="absolute top-0 left-[76%] text-xs animate-falling-leaf [animation-delay:1.3s]">🍂</span>
+              <span className="absolute top-0 left-[90%] text-sm animate-falling-leaf [animation-delay:3.2s]">🍁</span>
+            </>
+          )}
+          {selectedSeason === 'winter' && (
+            <>
+              <span className="absolute top-0 left-[8%] text-xs animate-falling-snow [animation-delay:0s]">❄️</span>
+              <span className="absolute top-0 left-[24%] text-sm animate-falling-snow [animation-delay:1.8s]">❄️</span>
+              <span className="absolute top-0 left-[44%] text-xs animate-falling-snow [animation-delay:3.5s]">❅</span>
+              <span className="absolute top-0 left-[64%] text-sm animate-falling-snow [animation-delay:1.2s]">❄️</span>
+              <span className="absolute top-0 left-[82%] text-xs animate-falling-snow [animation-delay:2.8s]">❅</span>
+              <span className="absolute top-0 left-[94%] text-sm animate-falling-snow [animation-delay:4.5s]">❄️</span>
+            </>
+          )}
+        </div>
+
+        {/* ----------------------------------------------------------- */}
+        {/* FOUR SEASONS SELECTOR BAR (XUÂN - HẠ - THU - ĐÔNG)          */}
+        {/* ----------------------------------------------------------- */}
+        <div className="flex items-center justify-between gap-1 p-1 bg-white/85 backdrop-blur-md rounded-2xl border border-white/70 shadow-2xs mb-2.5 z-20 relative">
+          {(['spring', 'summer', 'autumn', 'winter'] as GardenSeason[]).map((seas) => {
+            const isSelected = selectedSeason === seas;
+            const meta = {
+              spring: { label: 'Xuân', icon: '🌸' },
+              summer: { label: 'Hạ', icon: '☀️' },
+              autumn: { label: 'Thu', icon: '🍁' },
+              winter: { label: 'Đông', icon: '❄️' },
+            }[seas];
+
+            return (
+              <button
+                key={seas}
+                onClick={() => handleSelectSeason(seas)}
+                className={`flex-1 py-1 px-1.5 rounded-xl text-[11px] font-bold transition-all flex items-center justify-center gap-1 active:scale-95 cursor-pointer ${
+                  isSelected
+                    ? seas === 'spring'
+                      ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-xs'
+                      : seas === 'summer'
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-xs'
+                      : seas === 'autumn'
+                      ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-xs'
+                      : 'bg-gradient-to-r from-sky-500 to-indigo-500 text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100/60'
+                }`}
+              >
+                <span>{meta.icon}</span>
+                <span>{meta.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {/* Top Status Pill inside Garden */}
         <div className="flex items-center justify-between z-10 relative mb-1">
-          <div className="flex items-center gap-1.5 bg-white/85 backdrop-blur-md px-2.5 py-1 rounded-xl border border-emerald-200/80 shadow-2xs">
+          <div className="flex items-center gap-1.5 bg-white/85 backdrop-blur-md px-2.5 py-1 rounded-xl border border-white/80 shadow-2xs">
             <span className="text-base">{STAGE_DETAILS.icon}</span>
-            <span className="text-xs font-bold text-emerald-800">
+            <span className="text-xs font-bold text-stone-900">
               {STAGE_DETAILS.title}
             </span>
           </div>
 
-          <span className="text-[10px] bg-white/85 backdrop-blur-md text-emerald-800 px-2.5 py-1 rounded-xl border border-emerald-200/80 font-bold shadow-2xs">
-            {STAGE_DETAILS.range}
-          </span>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] bg-white/85 backdrop-blur-md text-stone-700 px-2 py-1 rounded-xl border border-white/80 font-bold shadow-2xs">
+              {STAGE_DETAILS.range}
+            </span>
+          </div>
         </div>
 
-        {/* Central Garden Scene: Plant, Pot, Grass & Soil */}
-        <div className="relative h-56 w-full flex flex-col items-center justify-end my-1 z-10">
-          
-          {/* Animated Interactive Plant Visual according to previewStage */}
-          <div className="relative flex flex-col items-center justify-center mb-1">
-            
-            {/* STAGE 1: Seed & Little Sprout */}
-            {previewStage === 1 && (
-              <div className="flex flex-col items-center animate-soft-float">
-                {/* Sun dew drops */}
-                <span className="text-xs text-sky-400 animate-pulse mb-1">💧 Giọt sương mai</span>
-                <div className="relative w-20 h-20 flex items-center justify-center">
-                  <span className="text-6xl filter drop-shadow-[0_4px_12px_rgba(16,185,129,0.5)]">🌱</span>
-                  <span className="absolute -top-1 -right-1 text-sm animate-bounce">✨</span>
-                </div>
-              </div>
-            )}
-
-            {/* STAGE 2: Young Heart Plant */}
-            {previewStage === 2 && (
-              <div className="flex flex-col items-center animate-soft-float">
-                <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-white/70 px-2 py-0.5 rounded-full mb-1 border border-emerald-200">
-                  <span>🍃</span>
-                  <span>Hai nhánh lá tim xanh biếc</span>
-                </div>
-                <div className="relative w-24 h-24 flex items-center justify-center">
-                  <span className="text-7xl filter drop-shadow-[0_6px_16px_rgba(16,185,129,0.6)]">🌿</span>
-                  <span className="absolute -top-2 right-1 text-lg animate-pulse">🌸</span>
-                </div>
-              </div>
-            )}
-
-            {/* STAGE 3: Blooming Rose Bush */}
-            {previewStage === 3 && (
-              <div className="flex flex-col items-center animate-soft-float">
-                <div className="flex items-center gap-1 text-[11px] font-bold text-rose-800 bg-white/80 px-2.5 py-0.5 rounded-full mb-1 border border-rose-200 shadow-2xs">
-                  <span>💖</span>
-                  <span>Đóa hồng tình yêu rực rỡ</span>
-                </div>
-                <div className="relative w-28 h-28 flex items-center justify-center">
-                  <span className="text-8xl filter drop-shadow-[0_8px_20px_rgba(244,63,94,0.7)]">🌸</span>
-                  <span className="absolute top-1 left-2 text-xl animate-bounce">🌺</span>
-                  <span className="absolute -top-1 right-2 text-base animate-spin [animation-duration:8s]">✨</span>
-                </div>
-              </div>
-            )}
-
-            {/* STAGE 4: Evergreen Tree of Love */}
-            {previewStage === 4 && (
-              <div className="flex flex-col items-center animate-soft-float">
-                <div className="flex items-center gap-1 text-[11px] font-bold text-purple-900 bg-white/90 px-3 py-0.5 rounded-full mb-1 border border-purple-200 shadow-2xs">
-                  <span>🌳</span>
-                  <span>Cây đại thụ hạnh phúc viên mãn</span>
-                </div>
-                <div className="relative w-32 h-32 flex items-center justify-center">
-                  <span className="text-9xl filter drop-shadow-[0_10px_24px_rgba(147,51,234,0.6)]">🌳</span>
-                  <span className="absolute top-2 right-4 text-2xl animate-bounce">🍎</span>
-                  <span className="absolute top-4 left-3 text-xl animate-pulse">💖</span>
-                </div>
-              </div>
-            )}
-
-            {/* Terracotta Pot with Love engraving */}
-            <div className="relative w-28 h-12 bg-gradient-to-b from-amber-700 via-amber-800 to-amber-900 rounded-b-2xl shadow-md border-t-4 border-amber-600 flex flex-col items-center justify-center text-amber-100 text-[10px] font-bold">
-              <div className="w-32 h-2.5 bg-amber-600 rounded-full -mt-4 shadow-sm border border-amber-700"></div>
-              <div className="flex items-center gap-1 pt-1 text-[9px] text-amber-200/90 font-serif-romantic tracking-wide">
-                <span>{userA.name}</span>
-                <Heart className="w-2.5 h-2.5 fill-rose-400 text-rose-400" />
-                <span>{userB.name}</span>
-              </div>
-            </div>
-
-            {/* Rich garden soil & grass ground */}
-            <div className="w-44 h-4 bg-emerald-800/80 rounded-full blur-xs -mt-1 shadow-inner"></div>
-            <div className="flex items-center gap-3 text-xs -mt-2">
-              <span>🌱</span>
-              <span>🌾</span>
-              <span>🌼</span>
-              <span>🌿</span>
-              <span>🌷</span>
-            </div>
-          </div>
+        {/* Central Garden Scene: High-End Botanical SVG Tree */}
+        <div className="relative w-full flex flex-col items-center justify-center my-1 z-10 min-h-[250px] sm:min-h-[270px]">
+          <GardenTreeVisual
+            stage={previewStage}
+            season={selectedSeason}
+            userAName={userA.name}
+            userBName={userB.name}
+          />
 
           {/* Watering Animation Overlay */}
           {isWatering && (
@@ -324,11 +406,19 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           )}
         </div>
 
-        {/* Stage Timeline Selector: 4 Stages */}
-        <div className="grid grid-cols-4 gap-1 p-1 bg-white/80 backdrop-blur-md rounded-2xl border border-emerald-200/90 mb-3 shadow-2xs z-10 relative">
-          {[1, 2, 3, 4].map((stg) => {
+        {/* Stage Timeline Selector: 5 Stages */}
+        <div className="grid grid-cols-5 gap-1 p-1 bg-white/85 backdrop-blur-md rounded-2xl border border-white/80 mb-3 shadow-2xs z-10 relative">
+          {([1, 2, 3, 4, 5] as GardenStage[]).map((stg) => {
             const isSelected = previewStage === stg;
             const isReached = realStage >= stg;
+            const labels = {
+              1: '🌱 Cấp 1',
+              2: '🌿 Cấp 2',
+              3: '🌸 Cấp 3',
+              4: '🌳 Cấp 4',
+              5: '✨ Cấp 5',
+            }[stg];
+
             return (
               <button
                 key={stg}
@@ -336,13 +426,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                   playSound('click');
                   setPreviewStage(stg);
                 }}
-                className={`py-1.5 px-1 rounded-xl text-[10px] font-bold transition-all flex flex-col items-center justify-center ${
+                className={`py-1.5 px-0.5 rounded-xl text-[10px] font-bold transition-all flex flex-col items-center justify-center cursor-pointer ${
                   isSelected
                     ? 'bg-emerald-600 text-white shadow-xs scale-102'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-emerald-50'
                 }`}
               >
-                <span>{stg === 1 ? '🌱 Cấp 1' : stg === 2 ? '🌿 Cấp 2' : stg === 3 ? '🌸 Cấp 3' : '🌳 Cấp 4'}</span>
+                <span className="truncate">{labels}</span>
                 {isReached && <span className="text-[8px] text-emerald-300 font-extrabold mt-0.5">Đã đạt ✓</span>}
               </button>
             );
@@ -350,19 +440,19 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
         </div>
 
         {/* Progress Bar to next stage */}
-        <div className="space-y-1.5 pt-2 border-t border-emerald-300/60 z-10 relative">
-          <div className="flex items-center justify-between text-xs font-semibold text-emerald-900">
+        <div className="space-y-1.5 pt-2 border-t border-white/60 z-10 relative">
+          <div className="flex items-center justify-between text-xs font-semibold text-stone-900">
             <span className="text-[11px]">
-              {realStage === 4 
-                ? '🎉 Khu vườn đạt cấp độ đại thụ cao nhất!' 
+              {realStage === 5 
+                ? '🎉 Khu vườn tình yêu đạt cấp độ cổ thụ vĩnh cửu cao nhất!' 
                 : `Cần thêm ${pointsToNextStage} pts để lên Cấp ${realStage + 1}`}
             </span>
-            <span className="font-extrabold text-emerald-700 bg-white/80 px-2 py-0.5 rounded-full border border-emerald-200">
+            <span className="font-extrabold text-emerald-700 bg-white/85 px-2 py-0.5 rounded-full border border-white/80 shadow-2xs">
               {progressPercent}%
             </span>
           </div>
 
-          <div className="w-full h-2.5 bg-white/60 rounded-full overflow-hidden border border-emerald-200/80 p-0.5 shadow-inner">
+          <div className="w-full h-2.5 bg-white/60 rounded-full overflow-hidden border border-white/80 p-0.5 shadow-inner">
             <div
               className="h-full bg-gradient-to-r from-emerald-500 via-teal-500 to-rose-500 rounded-full transition-all duration-700"
               style={{ width: `${progressPercent}%` }}
@@ -528,65 +618,21 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
               Lịch Sử Chăm Sóc & Tích Điểm
             </h4>
           </div>
-          <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-bold border border-emerald-200">
-            {filteredHistory.length} hoạt động
+          <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-bold border border-emerald-200 shadow-2xs">
+            {userHistory.length} hoạt động
           </span>
         </div>
 
-        {/* Filter Tab: Tất cả / Alex / Sam */}
-        <div className="flex items-center gap-1.5 p-1 bg-stone-100 rounded-2xl text-xs font-semibold">
-          <button
-            onClick={() => {
-              playSound('click');
-              setHistoryFilter('all');
-            }}
-            className={`flex-1 py-1.5 rounded-xl transition-all ${
-              historyFilter === 'all'
-                ? 'bg-white text-stone-900 shadow-2xs font-bold'
-                : 'text-stone-500 hover:text-stone-800'
-            }`}
-          >
-            Tất cả
-          </button>
-          <button
-            onClick={() => {
-              playSound('click');
-              setHistoryFilter('alex');
-            }}
-            className={`flex-1 py-1.5 rounded-xl transition-all flex items-center justify-center gap-1 ${
-              historyFilter === 'alex'
-                ? 'bg-white text-rose-600 shadow-2xs font-bold'
-                : 'text-stone-500 hover:text-stone-800'
-            }`}
-          >
-            <span>{userA.name}</span>
-          </button>
-          <button
-            onClick={() => {
-              playSound('click');
-              setHistoryFilter('sam');
-            }}
-            className={`flex-1 py-1.5 rounded-xl transition-all flex items-center justify-center gap-1 ${
-              historyFilter === 'sam'
-                ? 'bg-white text-purple-600 shadow-2xs font-bold'
-                : 'text-stone-500 hover:text-stone-800'
-            }`}
-          >
-            <span>{userB.name}</span>
-          </button>
-        </div>
-
-        {/* History List */}
-        {filteredHistory.length === 0 ? (
+        {/* History List (Chính chủ) */}
+        {userHistory.length === 0 ? (
           <div className="py-8 text-center text-xs text-stone-400 space-y-2 bg-stone-50/60 rounded-2xl border border-dashed border-stone-200">
-            <p className="font-medium">Chưa có lịch sử chăm sóc nào trong mục này.</p>
+            <p className="font-medium">Chưa có lịch sử chăm sóc nào.</p>
             <p className="text-[10px] text-stone-400">Hãy nhấn tưới cây hoặc bón phân để tích lũy điểm đầu tiên!</p>
           </div>
         ) : (
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-            {filteredHistory.map((item) => {
-              const isAlex = item.by.toLowerCase().includes('alex');
-              const avatar = isAlex ? userA.avatar : userB.avatar;
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1 pb-1">
+            {userHistory.map((item) => {
+              const avatar = userA.avatar;
               const icon = getActionIcon(item.action, item.category);
 
               return (
@@ -599,7 +645,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                     <div className="relative shrink-0">
                       <img
                         src={avatar}
-                        alt={item.by}
+                        alt={userA.name}
                         className="w-8 h-8 rounded-xl object-cover border border-stone-200"
                       />
                       <span className="absolute -bottom-1 -right-1 text-xs bg-white rounded-full shadow-2xs border border-stone-100 px-0.5">
@@ -612,7 +658,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                         {item.action}
                       </p>
                       <div className="flex items-center gap-1.5 text-[10px] text-stone-400">
-                        <span className="font-semibold text-stone-600">{item.by}</span>
+                        <span className="font-semibold text-rose-600">Bạn ({userA.name})</span>
                         <span>•</span>
                         <span className="flex items-center gap-0.5 text-stone-500">
                           <Clock className="w-2.5 h-2.5" />
