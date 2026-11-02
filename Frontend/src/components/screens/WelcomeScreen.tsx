@@ -5,15 +5,33 @@ import { playSound } from '../../utils/audio';
 interface WelcomeScreenProps {
   onNavigateToLogin: () => void;
   onNavigateToRegister: () => void;
+  onNavigateToAdmin?: () => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onNavigateToLogin,
   onNavigateToRegister,
+  onNavigateToAdmin,
 }) => {
   return (
     <div className="relative min-h-[640px] h-full flex flex-col justify-between p-6 bg-gradient-to-b from-rose-50/80 via-white to-purple-50/70 text-stone-800 overflow-y-auto overflow-x-hidden select-none">
       
+      {/* Top Admin Shortcut */}
+      {onNavigateToAdmin && (
+        <button
+          type="button"
+          onClick={() => {
+            playSound('click');
+            onNavigateToAdmin();
+          }}
+          className="absolute top-4 right-4 z-20 px-3 py-1.5 bg-white/90 backdrop-blur-xs hover:bg-white text-purple-700 hover:text-purple-900 border border-purple-200/90 rounded-full text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95 cursor-pointer"
+          title="Mở Trang Quản Trị Hệ Thống (Web Admin)"
+        >
+          <Shield className="w-3.5 h-3.5 text-purple-600" />
+          <span>Web Admin</span>
+        </button>
+      )}
+
       {/* Ambient background blur circles wrapped in overflow-hidden */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-12 -right-12 w-48 h-48 bg-rose-200/40 rounded-full blur-3xl"></div>
@@ -61,18 +79,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
               <Sparkles className="w-4 h-4" />
             </div>
             <div className="text-left">
-              <h3 className="text-xs font-bold text-stone-800">Lên Lịch Hẹn Hò Bằng AI</h3>
-              <p className="text-[10px] text-stone-400">Gợi ý địa điểm & chi phí vừa vặn ngân sách</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 p-3 bg-white/90 backdrop-blur-xs rounded-2xl border border-rose-100 shadow-2xs">
-            <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-              <span className="text-sm">🌱</span>
-            </div>
-            <div className="text-left">
-              <h3 className="text-xs font-bold text-stone-800">Vườn Hoa Tình Yêu (Love Garden)</h3>
-              <p className="text-[10px] text-stone-400">Tích lũy điểm để cây tình yêu đơm hoa kết trái</p>
+              <h3 className="text-xs font-bold text-stone-800">Trợ Lý AI & Vườn Yêu 4 Mùa</h3>
+              <p className="text-[10px] text-stone-400">Gợi ý hẹn hò thông minh & quà tặng ngọt ngào</p>
             </div>
           </div>
         </div>
@@ -85,7 +93,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             playSound('click');
             onNavigateToRegister();
           }}
-          className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2"
+          className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
           <span>Tạo Tài Khoản Mới (Đăng Ký)</span>
@@ -96,11 +104,27 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             playSound('click');
             onNavigateToLogin();
           }}
-          className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-white hover:bg-rose-50/60 text-stone-800 font-semibold text-xs border border-rose-200/80 shadow-2xs active:scale-98 transition-all flex items-center justify-center gap-2"
+          className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-white hover:bg-rose-50/60 text-stone-800 font-semibold text-xs border border-rose-200/80 shadow-2xs active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
         >
           <LogIn className="w-4 h-4 text-rose-500" />
           <span>Đã có tài khoản? Đăng Nhập</span>
         </button>
+
+        {onNavigateToAdmin && (
+          <div className="text-center pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                playSound('click');
+                onNavigateToAdmin();
+              }}
+              className="text-[11px] font-bold text-purple-600 hover:text-purple-700 underline underline-offset-2 inline-flex items-center gap-1 mx-auto cursor-pointer"
+            >
+              <Shield className="w-3 h-3 text-purple-600" />
+              <span>Vào Bảng Điều Khiển Quản Trị (Web Admin)</span>
+            </button>
+          </div>
+        )}
       </div>
 
     </div>

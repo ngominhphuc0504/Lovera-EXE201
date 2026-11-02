@@ -37,7 +37,14 @@ public sealed class AuthFlowTests
         Assert.Equal("a@example.com", repo.User!.Email);
         Assert.NotEqual("long-secure-password", repo.User.PasswordHash);
         Assert.False(repo.User.EmailVerified);
-        Assert.Null(mail.Address); // Đăng ký không gửi email/OTP
+        Assert.Equal("a@example.com", mail.Address);
+        Assert.NotNull(mail.Code);
+
+        var blocked = await Assert.ThrowsAsync<AppProblem>(() =>
+            service.Login(new("a@example.com", "long-secure-password"), default));
+        Assert.Equal("email_unverified", blocked.Code);
+
+        await service.Verify(new("a@example.com", mail.Code!), default);
 
         var login = await service.Login(
             new("a@example.com", "long-secure-password"), default);
@@ -75,12 +82,16 @@ public sealed class AuthFlowTests
     public async Task Five_bad_passwords_temporarily_lock_account()
     {
         var repo = new MemoryUsers();
+        var mail = new MemoryMail();
         var clock = new TestClock();
         var service = new AuthService(
-            repo, new MemoryMail(), clock, new MemoryAvatars(), new string('p', 32));
+            repo, mail, clock, new MemoryAvatars(), new string('p', 32));
 
         await service.Register(
             new("a@example.com", "long-secure-password", "Alice"), default);
+
+        await service.Verify(
+            new("a@example.com", mail.Code!), default);
 
         for (var i = 0; i < 5; i++)
         {
@@ -136,11 +147,25 @@ public sealed class AuthFlowTests
     private sealed class TestClock : IClock { public DateTime UtcNow { get; set; } = new(2026, 9, 23, 0, 0, 0, DateTimeKind.Utc); }
     private sealed class MemoryMail : IVerificationMail
     {
-        public string? Address, Code;
-        public Task Send(string email, string code, CancellationToken ct) { Address = email; Code = code; return Task.CompletedTask; }
+        public string? Address, Code, ResetCode;
+
+        public Task Send(string email, string code, CancellationToken ct)
+        {
+            Address = email;
+            Code = code;
+            return Task.CompletedTask;
+        }
+
+        public Task SendPasswordReset(string email, string code, CancellationToken ct)
+        {
+            Address = email;
+            ResetCode = code;
+            return Task.CompletedTask;
+        }
     }
     private sealed class MemoryUsers : IUsersRepository
     {
+        private readonly List<PasswordResetCode> passwordResetCodes = [];
         public UserAccount? User;
         private readonly List<VerificationCode> codes = [];
         private readonly List<UserSession> sessions = [];
@@ -153,6 +178,17 @@ public sealed class AuthFlowTests
         public void AddSession(UserSession session) { session.User = User!; sessions.Add(session); }
         public Task Save(CancellationToken ct) => Task.CompletedTask;
         
+        public Task<PasswordResetCode?> LatestPasswordResetCode(
+            Guid userId, CancellationToken ct) =>
+            Task.FromResult(
+                passwordResetCodes
+                    .Where(x => x.UserId == userId && x.ConsumedAtUtc is null)
+                    .OrderByDescending(x => x.CreatedAtUtc)
+                    .FirstOrDefault());
+
+        public void AddPasswordResetCode(PasswordResetCode code) =>
+            passwordResetCodes.Add(code);
+        
         public bool CoupleHistory;
 
         public Task<bool> HasCoupleHistory(Guid userId, CancellationToken ct) =>
@@ -163,7 +199,10 @@ public sealed class AuthFlowTests
             User = null;
             sessions.Clear();
             codes.Clear();
+            passwordResetCodes.Clear();
         }
+        
+        
         
         public Task RevokeSessions(Guid userId, CancellationToken ct)
         {

@@ -180,6 +180,19 @@ export const INITIAL_NOTIFICATIONS: AppNotification[] = [
 
 export const INITIAL_MEMORIES: MemoryItem[] = [
   {
+    id: 'mem_user_campfire',
+    imageUrl: 'https://images.unsplash.com/photo-1526772662000-3f88f10405ff?w=800&auto=format&fit=crop&q=80',
+    caption: 'sadasd',
+    date: '2026-10-30',
+    location: 'Quanh bếp lửa ấm áp',
+    tag: 'Đời thường',
+    authorName: 'Alex',
+    authorAvatar: avatarAlex,
+    likes: 1,
+    isLiked: true,
+    createdAt: '2026-10-30T12:00:00Z'
+  },
+  {
     id: 'mem_1',
     imageUrl: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=800&auto=format&fit=crop&q=80',
     caption: 'Chuyến đi Đà Lạt đầu tiên của hai đứa, trời se lạnh nhưng có bàn tay ai đó thật ấm áp.',

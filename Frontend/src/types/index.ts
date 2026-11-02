@@ -7,11 +7,51 @@ export type Screen =
   | 'auth' 
   | 'pairing' 
   | 'home' 
-  | 'chat'
+  | 'chat' 
   | 'planner' 
   | 'shared' 
   | 'garden' 
-  | 'profile';
+  | 'profile'
+  | 'admin';
+
+export interface AdminUserAccount {
+  id: string;
+  email: string;
+  name: string;
+  avatar: string;
+  role: 'Admin' | 'Member';
+  isEmailVerified: boolean;
+  isLocked: boolean;
+  createdAt: string;
+  pairedWith?: string;
+  partnerAvatar?: string;
+  lovePoints?: number;
+  gardenStage?: GardenStage;
+  activeSeason?: GardenSeason;
+  startDate?: string;
+}
+
+export interface AdminSystemMetric {
+  totalUsers: number;
+  activeUsersToday: number;
+  pairedCouples: number;
+  pendingPairings: number;
+  totalLovePoints: number;
+  totalMemories: number;
+  totalDatePlans: number;
+  aiQueriesToday: number;
+}
+
+export interface AdminActivityLog {
+  id: string;
+  action: string;
+  actor: string;
+  target: string;
+  timestamp: string;
+  type: 'auth' | 'couple' | 'garden' | 'content' | 'system';
+  status: 'success' | 'warning' | 'error';
+  ip?: string;
+}
 
 export interface ChatMessage {
   id: string;

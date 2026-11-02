@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { MemoryItem, MemoryTag, CoupleData, Partner } from '../../types';
 import { playSound, formatVNDate, calculateTotalDays } from '../../utils/audio';
+import { compressImageFile } from '../../utils/syncManager';
 
 const PRESET_PHOTOS = [
   {
@@ -125,24 +126,37 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
     setTimeout(() => setToastMessage(''), 2600);
   };
 
-  // Handle local file upload
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isCompressing, setIsCompressing] = useState(false);
+
+  // Handle local file upload with auto compression (prevents storage quota issues)
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 5MB theo tiêu chuẩn hệ thống.');
+    if (file.size > 20 * 1024 * 1024) {
+      alert('Kích thước ảnh tối đa là 20MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setCustomFilePreview(dataUrl);
-      setNewImageUrl(dataUrl);
+    try {
+      setIsCompressing(true);
+      const compressedDataUrl = await compressImageFile(file, 1080, 0.82);
+      setCustomFilePreview(compressedDataUrl);
+      setNewImageUrl(compressedDataUrl);
       playSound('chime');
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('[SharedSpace] Compression fallback to FileReader:', err);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        setCustomFilePreview(dataUrl);
+        setNewImageUrl(dataUrl);
+        playSound('chime');
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsCompressing(false);
+    }
   };
 
   // Open Add Modal
@@ -641,11 +655,12 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    disabled={isCompressing}
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition-colors"
+                    className="flex-1 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <ImageIcon className="w-3.5 h-3.5 text-rose-500" />
-                    <span>Tải ảnh từ máy (Max 5MB)</span>
+                    <span>{isCompressing ? 'Đang tối ưu ảnh...' : 'Tải ảnh từ máy (Tự động nén & đồng bộ)'}</span>
                   </button>
                 </div>
 

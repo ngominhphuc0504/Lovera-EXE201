@@ -29,6 +29,19 @@ public sealed class VerificationCode
     public DateTime? ConsumedAtUtc { get; set; }
     public int FailedAttempts { get; set; }
 }
+
+public sealed class PasswordResetCode
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid UserId { get; set; }
+    public UserAccount User { get; set; } = null!;
+    public string CodeHash { get; set; } = "";
+    public DateTime CreatedAtUtc { get; set; }
+    public DateTime ExpiresAtUtc { get; set; }
+    public DateTime? ConsumedAtUtc { get; set; }
+    public int FailedAttempts { get; set; }
+}
+
 public sealed class UserSession
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -43,6 +56,8 @@ public sealed class LoveraDbContext(DbContextOptions<LoveraDbContext> options) :
 {
     public DbSet<UserAccount> Users => Set<UserAccount>();
     public DbSet<VerificationCode> VerificationCodes => Set<VerificationCode>();
+    
+    public DbSet<PasswordResetCode> PasswordResetCodes => Set<PasswordResetCode>();
     public DbSet<UserSession> Sessions => Set<UserSession>();
     public DbSet<Couple> Couples => Set<Couple>();
     public DbSet<CoupleMember> CoupleMembers => Set<CoupleMember>();
@@ -56,6 +71,18 @@ public sealed class LoveraDbContext(DbContextOptions<LoveraDbContext> options) :
     {
         b.Entity<UserAccount>(x => { x.ToTable("users"); x.HasKey(u => u.Id); x.Property(u => u.Email).HasMaxLength(320).IsRequired(); x.HasIndex(u => u.Email).IsUnique(); x.Property(u => u.PasswordHash).IsRequired(); x.Property(u => u.DisplayName).HasMaxLength(80).IsRequired(); x.Property(u => u.AvatarUrl).HasMaxLength(2048); });
         b.Entity<VerificationCode>(x => { x.ToTable("verification_codes"); x.HasKey(v => v.Id); x.Property(v => v.CodeHash).IsRequired(); x.HasIndex(v => new { v.UserId, v.CreatedAtUtc }); x.HasOne(v => v.User).WithMany(u => u.VerificationCodes).HasForeignKey(v => v.UserId).OnDelete(DeleteBehavior.Cascade); });
+        b.Entity<PasswordResetCode>(x =>
+        {
+            x.ToTable("password_reset_codes");
+            x.HasKey(c => c.Id);
+            x.Property(c => c.CodeHash).HasMaxLength(64).IsRequired();
+            x.Property(c => c.ConsumedAtUtc).IsConcurrencyToken();
+            x.Property(c => c.FailedAttempts).IsConcurrencyToken();
+            x.HasIndex(c => new { c.UserId, c.CreatedAtUtc });
+            x.HasOne(c => c.User).WithMany()
+                .HasForeignKey(c => c.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
         b.Entity<UserSession>(x => { x.ToTable("sessions"); x.HasKey(s => s.Id); x.Property(s => s.TokenHash).IsRequired(); x.HasIndex(s => s.TokenHash).IsUnique(); x.HasIndex(s => new { s.UserId, s.ExpiresAtUtc }); x.HasOne(s => s.User).WithMany(u => u.Sessions).HasForeignKey(s => s.UserId).OnDelete(DeleteBehavior.Cascade); });
         b.Entity<Couple>(x => { x.ToTable("couples"); x.HasKey(c => c.Id); x.HasIndex(c => c.EndedAtUtc); });
         b.Entity<CoupleMember>(x => { x.ToTable("couple_members"); x.HasKey(m => new { m.CoupleId, m.UserId }); x.HasIndex(m => m.UserId).IsUnique().HasFilter("\"LeftAtUtc\" IS NULL"); x.HasOne(m => m.Couple).WithMany(c => c.Members).HasForeignKey(m => m.CoupleId).OnDelete(DeleteBehavior.Cascade); x.HasOne(m => m.User).WithMany().HasForeignKey(m => m.UserId).OnDelete(DeleteBehavior.Restrict); });

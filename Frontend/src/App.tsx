@@ -28,7 +28,19 @@ import { StatusModal } from './components/modals/StatusModal';
 import { LoveDayModal } from './components/modals/LoveDayModal';
 import { NotificationsModal } from './components/modals/NotificationsModal';
 
-import { Heart, Smartphone, Monitor } from 'lucide-react';
+import { AdminPortal } from './components/admin/AdminPortal';
+import { 
+  INITIAL_ADMIN_METRICS, 
+  INITIAL_ADMIN_USERS, 
+  INITIAL_ADMIN_LOGS 
+} from './data/mockAdminData';
+import { AdminUserAccount, AdminSystemMetric, AdminActivityLog } from './types';
+import { Heart, Smartphone, Monitor, Shield } from 'lucide-react';
+import { STORAGE_KEYS, loadStoredData, saveStoredData, broadcastMessage, subscribeToSync } from './utils/syncManager';
+import { getStoredToken } from './services/apiClient';
+import { authService } from './services/authService';
+import { coupleService } from './services/coupleService';
+import { memoryService } from './services/memoryService';
 
 export default function App() {
   // Main Screen Navigation State (First-time open -> Welcome Screen)
@@ -36,26 +48,179 @@ export default function App() {
   const [pairingInitialStage, setPairingInitialStage] = useState<PairingStage>('idle');
   const [pairingBannerMessage, setPairingBannerMessage] = useState<string>('');
 
-  // Couple & Domain State
-  const [couple, setCouple] = useState<CoupleData>(() => {
-    try {
-      const savedAvatar = localStorage.getItem('lovera_alex_avatar');
-      if (savedAvatar) {
-        return {
-          ...INITIAL_COUPLE,
-          userA: { ...INITIAL_COUPLE.userA, avatar: savedAvatar }
-        };
-      }
-    } catch (err) {
-      console.warn('Failed to load avatar from localStorage:', err);
-    }
-    return INITIAL_COUPLE;
-  });
-  const [datePlans, setDatePlans] = useState<DatePlan[]>(INITIAL_DATE_PLANS);
+  // Couple & Domain State with persistent storage across tabs & reloads
+  const [couple, setCouple] = useState<CoupleData>(() =>
+    loadStoredData(STORAGE_KEYS.COUPLE, INITIAL_COUPLE)
+  );
+  const [datePlans, setDatePlans] = useState<DatePlan[]>(() =>
+    loadStoredData(STORAGE_KEYS.DATE_PLANS, INITIAL_DATE_PLANS)
+  );
   const [activePlan, setActivePlan] = useState<DatePlan | null>(INITIAL_DATE_PLANS[0]);
-  const [pointHistory, setPointHistory] = useState(INITIAL_POINT_HISTORY);
+  const [pointHistory, setPointHistory] = useState<PointHistoryItem[]>(() =>
+    loadStoredData(STORAGE_KEYS.POINT_HISTORY, INITIAL_POINT_HISTORY)
+  );
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
-  const [memories, setMemories] = useState<MemoryItem[]>(INITIAL_MEMORIES);
+  const [memories, setMemories] = useState<MemoryItem[]>(() =>
+    loadStoredData(STORAGE_KEYS.MEMORIES, INITIAL_MEMORIES)
+  );
+  const [adminUsers, setAdminUsers] = useState<AdminUserAccount[]>(() =>
+    loadStoredData(STORAGE_KEYS.ADMIN_USERS, INITIAL_ADMIN_USERS)
+  );
+  const [adminLogs, setAdminLogs] = useState<AdminActivityLog[]>(() =>
+    loadStoredData(STORAGE_KEYS.ADMIN_LOGS, INITIAL_ADMIN_LOGS)
+  );
+  const [adminMetrics, setAdminMetrics] = useState<AdminSystemMetric>(() =>
+    loadStoredData(STORAGE_KEYS.ADMIN_METRICS, INITIAL_ADMIN_METRICS)
+  );
+  const [previousScreen, setPreviousScreen] = useState<Screen>('welcome');
+
+  const navigateToAdmin = () => {
+    playSound('click');
+    setPreviousScreen(currentScreen === 'admin' ? (couple.isPaired ? 'home' : 'welcome') : currentScreen);
+    setCurrentScreen('admin');
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('mode', 'admin');
+      window.history.pushState({ screen: 'admin' }, '', url.toString());
+    } catch (err) {
+      console.warn('URL parsing error:', err);
+    }
+  };
+
+  const navigateToCoupleApp = () => {
+    playSound('click');
+    const target = couple.isPaired ? (previousScreen === 'admin' ? 'home' : previousScreen) : 'welcome';
+    setCurrentScreen(target);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('mode');
+      url.searchParams.delete('admin');
+      window.history.pushState({ screen: target }, '', url.pathname + (url.search ? url.search : ''));
+    } catch (err) {
+      console.warn('URL parsing error:', err);
+    }
+  };
+
+  // Auto detect ?mode=admin or ?admin=true and sync browser navigation
+  React.useEffect(() => {
+    const checkUrl = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('mode') === 'admin' || params.get('admin') === 'true') {
+          setCurrentScreen('admin');
+        } else {
+          setCurrentScreen(prev => (prev === 'admin' ? 'home' : prev));
+        }
+      } catch (err) {
+        console.warn('URL parsing error:', err);
+      }
+    };
+
+    checkUrl();
+    window.addEventListener('popstate', checkUrl);
+    return () => window.removeEventListener('popstate', checkUrl);
+  }, []);
+
+  // Auto load real user profile and couple status if JWT token exists
+  React.useEffect(() => {
+    const token = getStoredToken();
+    if (!token) return;
+
+    (async () => {
+      try {
+        const profile = await authService.getProfile();
+        if (profile?.displayName || profile?.email) {
+          const status = await coupleService.getStatus().catch(() => null);
+          setCouple(prev => ({
+            ...prev,
+            userA: {
+              ...prev.userA,
+              name: profile.displayName || prev.userA.name,
+              email: profile.email || prev.userA.email,
+              avatar: profile.avatarUrl || prev.userA.avatar,
+            },
+            isPaired: Boolean(status?.isPaired),
+          }));
+        }
+      } catch (err) {
+        console.warn('[App] Auto fetch real user profile failed:', err);
+      }
+    })();
+  }, []);
+
+  // Live Cross-Tab Synchronization with BroadcastChannel & localStorage
+  const stateRef = React.useRef({ memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory });
+  stateRef.current = { memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory };
+
+  React.useEffect(() => {
+    const unsubscribe = subscribeToSync((msg) => {
+      switch (msg.type) {
+        case 'SYNC_MEMORIES':
+          setMemories(msg.payload);
+          break;
+        case 'SYNC_COUPLE':
+          setCouple(msg.payload);
+          break;
+        case 'SYNC_ADMIN_USERS':
+          setAdminUsers(msg.payload);
+          break;
+        case 'SYNC_ADMIN_LOGS':
+          setAdminLogs(msg.payload);
+          break;
+        case 'SYNC_ADMIN_METRICS':
+          setAdminMetrics(msg.payload);
+          break;
+        case 'SYNC_DATE_PLANS':
+          setDatePlans(msg.payload);
+          break;
+        case 'SYNC_POINT_HISTORY':
+          setPointHistory(msg.payload);
+          break;
+        case 'REQUEST_SYNC':
+          broadcastMessage('SYNC_ALL', stateRef.current);
+          break;
+        case 'SYNC_ALL':
+          if (msg.payload) {
+            if (msg.payload.memories) setMemories(msg.payload.memories);
+            if (msg.payload.couple) setCouple(msg.payload.couple);
+            if (msg.payload.adminUsers) setAdminUsers(msg.payload.adminUsers);
+            if (msg.payload.adminLogs) setAdminLogs(msg.payload.adminLogs);
+            if (msg.payload.adminMetrics) setAdminMetrics(msg.payload.adminMetrics);
+            if (msg.payload.datePlans) setDatePlans(msg.payload.datePlans);
+            if (msg.payload.pointHistory) setPointHistory(msg.payload.pointHistory);
+          }
+          break;
+      }
+    });
+
+    // Request sync from any already-open tab on mount
+    broadcastMessage('REQUEST_SYNC', null);
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const handleManualSync = () => {
+    playSound('chime');
+    const freshMemories = loadStoredData(STORAGE_KEYS.MEMORIES, INITIAL_MEMORIES);
+    const freshCouple = loadStoredData(STORAGE_KEYS.COUPLE, INITIAL_COUPLE);
+    const freshUsers = loadStoredData(STORAGE_KEYS.ADMIN_USERS, INITIAL_ADMIN_USERS);
+    const freshLogs = loadStoredData(STORAGE_KEYS.ADMIN_LOGS, INITIAL_ADMIN_LOGS);
+    const freshMetrics = loadStoredData(STORAGE_KEYS.ADMIN_METRICS, INITIAL_ADMIN_METRICS);
+    const freshPlans = loadStoredData(STORAGE_KEYS.DATE_PLANS, INITIAL_DATE_PLANS);
+    const freshPoints = loadStoredData(STORAGE_KEYS.POINT_HISTORY, INITIAL_POINT_HISTORY);
+
+    setMemories(freshMemories);
+    setCouple(freshCouple);
+    setAdminUsers(freshUsers);
+    setAdminLogs(freshLogs);
+    setAdminMetrics(freshMetrics);
+    setDatePlans(freshPlans);
+    setPointHistory(freshPoints);
+
+    broadcastMessage('REQUEST_SYNC', null);
+  };
 
   // Modals & UI States
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -86,10 +251,12 @@ export default function App() {
   // POINTS & GAMIFICATION HANDLERS
   // -----------------------------------------------------------------
   const addPoints = (amount: number, actionName: string, byUser = couple.userA.name, category?: PointHistoryItem['category']) => {
-    setCouple(prev => ({
-      ...prev,
-      lovePoints: prev.lovePoints + amount
-    }));
+    setCouple(prev => {
+      const next = { ...prev, lovePoints: prev.lovePoints + amount };
+      saveStoredData(STORAGE_KEYS.COUPLE, next);
+      broadcastMessage('SYNC_COUPLE', next);
+      return next;
+    });
 
     const now = new Date();
     const hours = String(now.getHours()).padStart(2, '0');
@@ -97,7 +264,7 @@ export default function App() {
     const formattedTime = 'Hôm nay, ' + hours + ':' + minutes;
 
     const newHistoryItem: PointHistoryItem = {
-      id: `pt_${Date.now()}`,
+      id: `pt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       action: actionName,
       points: amount,
       timestamp: formattedTime,
@@ -105,7 +272,53 @@ export default function App() {
       category
     };
 
-    setPointHistory(prev => [newHistoryItem, ...prev]);
+    setPointHistory(prev => {
+      const next = [newHistoryItem, ...prev];
+      saveStoredData(STORAGE_KEYS.POINT_HISTORY, next);
+      broadcastMessage('SYNC_POINT_HISTORY', next);
+      return next;
+    });
+
+    // Live bidirectional sync to Admin Portal metrics and accounts
+    setAdminUsers(prev => {
+      const next = prev.map(u => {
+        if (u.id === 'usr_alex' || u.id === 'usr_sam') {
+          const newPts = (u.lovePoints || 0) + amount;
+          const newStage = (newPts >= 1000 ? 5 : newPts >= 500 ? 4 : newPts >= 300 ? 3 : newPts >= 100 ? 2 : 1) as any;
+          return { ...u, lovePoints: newPts, gardenStage: newStage };
+        }
+        return u;
+      });
+      saveStoredData(STORAGE_KEYS.ADMIN_USERS, next);
+      broadcastMessage('SYNC_ADMIN_USERS', next);
+      return next;
+    });
+
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalLovePoints: prev.totalLovePoints + amount };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+
+    setAdminLogs(prev => {
+      const next = [
+        {
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          action: `${byUser} đã thực hiện: ${actionName} (+${amount} pts)`,
+          actor: byUser,
+          target: 'Love Garden',
+          timestamp: 'Vừa xong',
+          type: 'garden' as const,
+          status: 'success' as const,
+          ip: '127.0.0.1'
+        },
+        ...prev
+      ];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
   };
 
   // -----------------------------------------------------------------
@@ -189,15 +402,55 @@ export default function App() {
   const handleAddMemory = (newMemory: Omit<MemoryItem, 'id' | 'createdAt' | 'likes' | 'isLiked'>) => {
     const created: MemoryItem = {
       ...newMemory,
-      id: `mem_${Date.now()}`,
+      id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       likes: 1,
       isLiked: true,
       createdAt: 'Vừa xong',
     };
-    setMemories(prev => [created, ...prev]);
+
+    setMemories(prev => {
+      const next = [created, ...prev];
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
+
+    // Also call Real Backend API if authenticated
+    if (getStoredToken()) {
+      memoryService.createMemory(newMemory.caption).catch(err => {
+        console.warn('[App] Real API createMemory background sync error:', err);
+      });
+    }
+
     addPoints(10, `Lưu ảnh kỷ niệm: ${newMemory.caption.slice(0, 20)}...`, newMemory.authorName);
     playSound('success');
     triggerHeartBurst();
+
+    // Sync to Admin Portal
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalMemories: prev.totalMemories + 1 };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `${newMemory.authorName} vừa đăng ảnh kỷ niệm mới: "${newMemory.caption.slice(0, 25)}..."`,
+      actor: newMemory.authorName,
+      target: 'Shared Space',
+      timestamp: 'Vừa xong',
+      type: 'content',
+      status: 'success',
+      ip: '127.0.0.1'
+    };
+
+    setAdminLogs(prev => {
+      const next = [newLog, ...prev];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
 
     setNotifications(prev => [
       {
@@ -213,27 +466,42 @@ export default function App() {
   };
 
   const handleEditMemory = (id: string, updated: Partial<MemoryItem>) => {
-    setMemories(prev => prev.map(m => m.id === id ? { ...m, ...updated } : m));
+    setMemories(prev => {
+      const next = prev.map(m => m.id === id ? { ...m, ...updated } : m);
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
     playSound('click');
   };
 
   const handleDeleteMemory = (id: string) => {
-    setMemories(prev => prev.filter(m => m.id !== id));
+    setMemories(prev => {
+      const next = prev.filter(m => m.id !== id);
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
     playSound('click');
   };
 
   const handleLikeMemory = (id: string) => {
-    setMemories(prev => prev.map(m => {
-      if (m.id === id) {
-        const nextLiked = !m.isLiked;
-        return {
-          ...m,
-          isLiked: nextLiked,
-          likes: nextLiked ? m.likes + 1 : Math.max(0, m.likes - 1)
-        };
-      }
-      return m;
-    }));
+    setMemories(prev => {
+      const next = prev.map(m => {
+        if (m.id === id) {
+          const nextLiked = !m.isLiked;
+          return {
+            ...m,
+            isLiked: nextLiked,
+            likes: nextLiked ? m.likes + 1 : Math.max(0, m.likes - 1)
+          };
+        }
+        return m;
+      });
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
     playSound('ping');
   };
 
@@ -310,6 +578,11 @@ export default function App() {
 
       setActivePlan(newPlan);
       setDatePlans(prev => [newPlan, ...prev]);
+      setAdminMetrics(prev => ({
+        ...prev,
+        totalDatePlans: prev.totalDatePlans + 1,
+        aiQueriesToday: prev.aiQueriesToday + 1
+      }));
       addPoints(5, 'Tạo kế hoạch hẹn hò với AI', couple.userA.name);
     }, 1100);
   };
@@ -353,6 +626,29 @@ export default function App() {
       userA: { ...prev.userA, name: nameA },
       userB: { ...prev.userB, name: nameB }
     }));
+    if (getStoredToken()) {
+      authService.updateProfile({ displayName: nameA }).catch(err => {
+        console.warn('[App] Real updateProfile error:', err);
+      });
+    }
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === 'usr_alex') return { ...u, name: nameA };
+      if (u.id === 'usr_sam') return { ...u, name: nameB };
+      return u;
+    }));
+    setAdminLogs(prev => [
+      {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        action: `Cập nhật biệt danh cặp đôi: "${nameA}" & "${nameB}"`,
+        actor: nameA,
+        target: 'Profile',
+        timestamp: 'Vừa xong',
+        type: 'auth',
+        status: 'success',
+        ip: '127.0.0.1'
+      },
+      ...prev
+    ]);
   };
 
   const handleUpdateUserAvatar = (newAvatarUrl: string) => {
@@ -364,6 +660,10 @@ export default function App() {
     setCouple(prev => ({
       ...prev,
       userA: { ...prev.userA, avatar: newAvatarUrl }
+    }));
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === 'usr_alex') return { ...u, avatar: newAvatarUrl };
+      return u;
     }));
   };
 
@@ -427,6 +727,128 @@ export default function App() {
   const isTabScreen = couple.isPaired 
     ? ['home', 'shared', 'chat', 'planner', 'garden', 'profile'].includes(currentScreen)
     : ['pairing', 'profile'].includes(currentScreen);
+  const handleToggleLockUser = (userId: string) => {
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === userId) {
+        const updated = !u.isLocked;
+        const newLog: AdminActivityLog = {
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          action: updated ? `Khóa tài khoản ${u.name}` : `Mở khóa tài khoản ${u.name}`,
+          actor: 'admin@lovera.app',
+          target: u.email,
+          timestamp: 'Vừa xong',
+          type: 'auth',
+          status: updated ? 'warning' : 'success',
+          ip: '127.0.0.1'
+        };
+        setAdminLogs(l => [newLog, ...l]);
+        return { ...u, isLocked: updated };
+      }
+      return u;
+    }));
+  };
+
+  const handleAdjustPoints = (userId: string, newPoints: number) => {
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === userId) {
+        return { ...u, lovePoints: newPoints };
+      }
+      return u;
+    }));
+    if (userId === 'usr_alex' || userId === 'usr_sam') {
+      setCouple(prev => ({
+        ...prev,
+        lovePoints: newPoints
+      }));
+    }
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `Điều chỉnh Love Points thành ${newPoints} pts`,
+      actor: 'admin@lovera.app',
+      target: `User ID: ${userId}`,
+      timestamp: 'Vừa xong',
+      type: 'garden',
+      status: 'success',
+      ip: '127.0.0.1'
+    };
+    setAdminLogs(l => [newLog, ...l]);
+  };
+
+  const handleDeleteAdminMemory = (memoryId: string) => {
+    handleDeleteMemory(memoryId);
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalMemories: Math.max(0, prev.totalMemories - 1) };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `Gỡ bỏ bài viết kỷ niệm ID: ${memoryId}`,
+      actor: 'admin@lovera.app',
+      target: 'Shared Space',
+      timestamp: 'Vừa xong',
+      type: 'content',
+      status: 'warning',
+      ip: '127.0.0.1'
+    };
+    setAdminLogs(l => {
+      const next = [newLog, ...l];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
+  };
+
+  const handleDeleteAdminDatePlan = (planId: string) => {
+    setDatePlans(prev => {
+      const next = prev.filter(p => p.id !== planId);
+      saveStoredData(STORAGE_KEYS.DATE_PLANS, next);
+      broadcastMessage('SYNC_DATE_PLANS', next);
+      return next;
+    });
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalDatePlans: Math.max(0, prev.totalDatePlans - 1) };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `Xóa kế hoạch hẹn hò ID: ${planId}`,
+      actor: 'admin@lovera.app',
+      target: 'Date Plans',
+      timestamp: 'Vừa xong',
+      type: 'content',
+      status: 'warning',
+      ip: '127.0.0.1'
+    };
+    setAdminLogs(l => {
+      const next = [newLog, ...l];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
+  };
+
+  if (currentScreen === 'admin') {
+    return (
+      <AdminPortal
+        metrics={adminMetrics}
+        users={adminUsers}
+        logs={adminLogs}
+        memories={memories}
+        datePlans={datePlans}
+        onToggleLockUser={handleToggleLockUser}
+        onAdjustPoints={handleAdjustPoints}
+        onDeleteMemory={handleDeleteAdminMemory}
+        onDeleteDatePlan={handleDeleteAdminDatePlan}
+        onBackToCoupleApp={navigateToCoupleApp}
+        onManualSync={handleManualSync}
+      />
+    );
+  }
+
   const isHomeScreen = currentScreen === 'home';
 
   return (
@@ -439,6 +861,14 @@ export default function App() {
           <span>LOVERA Couple App (MVP 2026)</span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={navigateToAdmin}
+            className="px-2.5 py-1 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all active:scale-95 cursor-pointer"
+            title="Mở Trang Quản Trị Hệ Thống (Web Admin)"
+          >
+            <Shield className="w-3 h-3" />
+            <span>Web Admin</span>
+          </button>
           <button
             onClick={() => setDeviceFrame(!deviceFrame)}
             className="px-2 py-1 bg-white hover:bg-stone-200 text-stone-700 rounded-md border border-stone-200 text-[11px] flex items-center gap-1 transition-colors"
@@ -480,6 +910,7 @@ export default function App() {
               playSound('click');
               setIsNotificationsModalOpen(true);
             }}
+            onOpenAdmin={navigateToAdmin}
             onOpenSettings={() => {
               playSound('click');
               setCurrentScreen('profile');
@@ -501,6 +932,7 @@ export default function App() {
                 playSound('click');
                 setCurrentScreen('register');
               }}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
@@ -525,6 +957,7 @@ export default function App() {
                 playSound('click');
                 setCurrentScreen('welcome');
               }}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
@@ -553,6 +986,7 @@ export default function App() {
                 playSound('click');
                 setCurrentScreen('welcome');
               }}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
@@ -575,6 +1009,7 @@ export default function App() {
               }}
               onNavigateToRegister={() => setCurrentScreen('register')}
               onBackToWelcome={() => setCurrentScreen('welcome')}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
@@ -587,6 +1022,7 @@ export default function App() {
               currentUser={couple.userA}
               bannerMessage={pairingBannerMessage}
               onOpenProfile={() => setCurrentScreen('profile')}
+              onNavigateToAdmin={navigateToAdmin}
               onBackToAuth={() => {
                 setPairingBannerMessage('');
                 setCurrentScreen('welcome');
@@ -720,11 +1156,17 @@ export default function App() {
                 setPairingInitialStage('create');
                 setCurrentScreen('pairing');
               }}
+              onNavigateToAdmin={navigateToAdmin}
               onUpdateUserName={(newName) => {
                 setCouple(prev => ({
                   ...prev,
                   userA: { ...prev.userA, name: newName }
                 }));
+                if (getStoredToken()) {
+                  authService.updateProfile({ displayName: newName }).catch(err => {
+                    console.warn('[App] Real updateProfile error:', err);
+                  });
+                }
               }}
             />
           )}
@@ -798,6 +1240,20 @@ export default function App() {
         ))}
 
       </main>
+
+      {/* Floating Web Admin Quick-Access Pill (Always accessible from any App screen) */}
+      <aside aria-label="Lối tắt Web Admin" className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-50">
+        <button
+          type="button"
+          onClick={navigateToAdmin}
+          className="group flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-700 hover:to-rose-700 text-white rounded-full shadow-xl shadow-purple-500/40 border border-white/50 text-xs font-extrabold transition-all active:scale-95 cursor-pointer hover:scale-105"
+          title="Mở Bảng Điều Khiển Quản Trị Hệ Thống (Web Admin)"
+        >
+          <Shield className="w-4 h-4 text-purple-200 group-hover:rotate-12 transition-transform" />
+          <span>🛡️ Web Admin</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        </button>
+      </aside>
 
     </div>
   );

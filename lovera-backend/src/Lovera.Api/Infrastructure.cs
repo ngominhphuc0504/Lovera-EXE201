@@ -30,32 +30,63 @@ public sealed class SessionAuthHandler(IOptionsMonitor<AuthenticationSchemeOptio
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(new ClaimsIdentity(claims, Scheme.Name)), Scheme.Name));
     }
 }
-public sealed class SmtpVerificationMail(IConfiguration config, ILogger<SmtpVerificationMail> logger) : IVerificationMail
+public sealed class SmtpVerificationMail(
+    IConfiguration config,
+    ILogger<SmtpVerificationMail> logger) : IVerificationMail
 {
-    public async Task Send(string email, string code, CancellationToken ct)
+    public Task Send(string email, string code, CancellationToken ct) =>
+        SendCore(
+            email,
+            "LOVERA - Xác thực email",
+            $"Mã xác thực email: {code}\n" +
+            "Mã hết hạn sau 10 phút. Nếu bạn không đăng ký, hãy bỏ qua email này.",
+            ct);
+
+    public async Task SendPasswordReset(
+        string email, string code, CancellationToken ct)
     {
         try
         {
-            var host = config["Smtp:Host"] ?? "localhost";
-            var from = config["Smtp:From"] ?? "no-reply@lovera.local";
-            var port = int.Parse(config["Smtp:Port"] ?? "1025");
-            using var client = new SmtpClient(host, port) 
-            { 
-                EnableSsl = bool.Parse(config["Smtp:EnableSsl"] ?? "false"),
-                Timeout = 2500 
-            };
-            if (!string.IsNullOrEmpty(config["Smtp:Username"])) client.Credentials = new NetworkCredential(config["Smtp:Username"], config["Smtp:Password"]);
-            using var message = new MailMessage(from, email) { Subject = "LOVERA - Xác thực email", Body = $"Mã xác thực của bạn: {code}\nMã hết hạn sau 10 phút. Nếu bạn không đăng ký, hãy bỏ qua email này." };
-            await client.SendMailAsync(message, ct);
+            await SendCore(
+                email,
+                "LOVERA - Đặt lại mật khẩu",
+                $"Mã đặt lại mật khẩu: {code}\n" +
+                "Mã hết hạn sau 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.",
+                ct);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "[LOVERA DEV OTP] SMTP chưa khởi chạy, xuất mã xác thực ra màn hình: {Email} -> {Code}", email, code);
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n=================================================================");
-            Console.WriteLine($"[LOVERA DEV OTP] MÃ XÁC THỰC CHO {email} LÀ: {code}");
-            Console.WriteLine($"=================================================================\n");
-            Console.ResetColor();
+            // Không tiết lộ email nào có tài khoản qua phản hồi API.
+            logger.LogError(
+                "Password reset email delivery failed ({ErrorType}).",
+                ex.GetType().Name);
         }
+    }
+
+    private async Task SendCore(
+        string email, string subject, string body, CancellationToken ct)
+    {
+        var host = config["Smtp:Host"]
+            ?? throw new InvalidOperationException("Missing Smtp:Host");
+        var from = config["Smtp:From"]
+            ?? throw new InvalidOperationException("Missing Smtp:From");
+        var port = int.Parse(config["Smtp:Port"] ?? "25");
+
+        using var client = new SmtpClient(host, port)
+        {
+            EnableSsl = bool.Parse(config["Smtp:EnableSsl"] ?? "false")
+        };
+
+        if (!string.IsNullOrEmpty(config["Smtp:Username"]))
+            client.Credentials = new NetworkCredential(
+                config["Smtp:Username"], config["Smtp:Password"]);
+
+        using var message = new MailMessage(from, email)
+        {
+            Subject = subject,
+            Body = body
+        };
+
+        await client.SendMailAsync(message, ct);
     }
 }

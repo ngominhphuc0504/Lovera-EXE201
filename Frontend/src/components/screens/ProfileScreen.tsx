@@ -30,6 +30,7 @@ interface ProfileScreenProps {
   onNavigateToPairing?: () => void;
   onUpdateUserName?: (newName: string) => void;
   onUpdateAvatar?: (newAvatarUrl: string) => void;
+  onNavigateToAdmin?: () => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -42,6 +43,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onNavigateToPairing,
   onUpdateUserName,
   onUpdateAvatar,
+  onNavigateToAdmin,
 }) => {
   const isPaired = couple.isPaired;
   const { userA, userB, startDate, coupleId } = couple;
@@ -445,6 +447,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           >
             4. Couple Pairing (5 bước)
           </button>
+          {onNavigateToAdmin && (
+            <button
+              onClick={onNavigateToAdmin}
+              className="col-span-2 p-2.5 bg-gradient-to-r from-purple-50 to-indigo-50 hover:from-purple-100 hover:to-indigo-100 rounded-xl border border-purple-200 text-purple-900 font-bold text-left transition-colors shadow-2xs flex items-center justify-between"
+            >
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-purple-600" />
+                <span>5. Mở Web Admin Portal (Quản Trị)</span>
+              </span>
+              <span className="text-[10px] text-purple-700 font-extrabold bg-white px-2 py-0.5 rounded-full border border-purple-200">
+                Portal →
+              </span>
+            </button>
+          )}
         </div>
       </div>
 

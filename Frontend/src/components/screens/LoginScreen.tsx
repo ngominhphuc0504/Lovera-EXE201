@@ -1,32 +1,39 @@
 import React, { useState } from 'react';
-import { Heart, Lock, Mail, ArrowLeft, Eye, EyeOff, AlertCircle, LogIn, CheckCircle2 } from 'lucide-react';
+import { Heart, Lock, Mail, ArrowLeft, Eye, EyeOff, AlertCircle, LogIn, CheckCircle2, Shield, Sparkles } from 'lucide-react';
 import { playSound } from '../../utils/audio';
+import { authService } from '../../services/authService';
+import { VerifyOtpModal } from '../modals/VerifyOtpModal';
 
 interface LoginScreenProps {
   onLoginSuccess: (email: string, name: string, isAlreadyPaired: boolean) => void;
   onNavigateToRegister: () => void;
   onBackToWelcome: () => void;
+  onNavigateToAdmin?: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onLoginSuccess,
   onNavigateToRegister,
   onBackToWelcome,
+  onNavigateToAdmin,
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
+  const [showOfflineFallback, setShowOfflineFallback] = useState(false);
 
   // Email format validation
   const validateEmail = (val: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setShowOfflineFallback(false);
 
     const trimmedEmail = email.trim();
 
@@ -55,21 +62,45 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       return;
     }
 
+    // Direct redirect to Admin Portal if logging in with admin email
+    if (trimmedEmail.toLowerCase().includes('admin') && onNavigateToAdmin) {
+      playSound('success');
+      onNavigateToAdmin();
+      return;
+    }
+
     setIsLoading(true);
     playSound('click');
 
-    setTimeout(() => {
+    try {
+      // Call Real Backend API: POST /api/auth/login
+      const result = await authService.login({
+        email: trimmedEmail,
+        password,
+      });
+
       setIsLoading(false);
       playSound('success');
 
-      // Determine default paired state for demo
-      // If user typed alex or logged in as alex@lovera.app, we can simulate either
       const isPaired = trimmedEmail.toLowerCase().includes('paired');
-      const name = trimmedEmail.split('@')[0] || 'Alex';
-      const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
-      
+      const displayName = result.profile?.displayName || trimmedEmail.split('@')[0] || 'Alex';
+      const capitalizedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
+
       onLoginSuccess(trimmedEmail, capitalizedName, isPaired);
-    }, 600);
+    } catch (err: any) {
+      setIsLoading(false);
+      playSound('error');
+
+      // If email is not verified yet, open OTP Modal
+      if (err?.code === 'email_unverified' || err?.message?.includes('xác thực')) {
+        setIsOtpModalOpen(true);
+        setError('Tài khoản chưa xác thực email. Vui lòng nhập mã OTP đã nhận.');
+        return;
+      }
+
+      setError(err?.message || 'Đăng nhập không thành công. Vui lòng kiểm tra lại email hoặc mật khẩu.');
+      setShowOfflineFallback(true);
+    }
   };
 
   // Quick preset helper for tester/demo
@@ -87,6 +118,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }, 400);
   };
 
+  // Continue demo/offline mode
+  const handleBypassToDemo = () => {
+    playSound('chime');
+    const isPaired = email.toLowerCase().includes('paired');
+    const name = email.split('@')[0] || 'Alex';
+    const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
+    onLoginSuccess(email.trim() || 'alex@lovera.app', capitalizedName, isPaired);
+  };
+
   return (
     <div className="relative min-h-[640px] h-full flex flex-col justify-between p-6 bg-gradient-to-b from-stone-50 via-rose-50/30 to-purple-50 text-stone-800 overflow-y-auto overflow-x-hidden w-full max-w-full select-none">
       
@@ -98,15 +138,35 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               playSound('click');
               onBackToWelcome();
             }}
-            className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs"
+            className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
             title="Quay lại"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
-            LOVERA AUTH
-          </span>
-          <div className="w-10"></div>
+          
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
+              LOVERA AUTH API
+            </span>
+          </div>
+
+          {onNavigateToAdmin ? (
+            <button
+              type="button"
+              onClick={() => {
+                playSound('click');
+                onNavigateToAdmin();
+              }}
+              className="px-2.5 py-1 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
+              title="Chuyển sang Web Admin"
+            >
+              <Shield className="w-3 h-3 text-purple-600" />
+              <span>Admin</span>
+            </button>
+          ) : (
+            <div className="w-10"></div>
+          )}
         </div>
 
         {/* Title */}
@@ -118,7 +178,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             Đăng Nhập
           </h2>
           <p className="text-xs text-stone-500 mt-0.5">
-            Đăng nhập để vào không gian yêu của hai bạn
+            Xác thực qua JWT Token & Backend .NET 8
           </p>
         </div>
       </div>
@@ -128,9 +188,20 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         
         {/* Error Notification Banner */}
         {error && (
-          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-2xl flex items-center gap-2 animate-shake shadow-2xs">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span className="font-medium">{error}</span>
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-2xl flex flex-col gap-1.5 animate-shake shadow-2xs">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span className="font-medium">{error}</span>
+            </div>
+            {showOfflineFallback && (
+              <button
+                type="button"
+                onClick={handleBypassToDemo}
+                className="text-[11px] font-bold text-purple-700 hover:text-purple-900 underline text-left pt-1 cursor-pointer"
+              >
+                👉 Máy chủ Database chưa bật? Nhấn đây để tiếp tục chế độ Thử nghiệm (Demo)
+              </button>
+            )}
           </div>
         )}
 
@@ -148,7 +219,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 setEmail(e.target.value);
                 if (error) setError('');
               }}
-              placeholder="alex@lovera.app"
+              placeholder="alex@lovera.app hoặc admin@lovera.app"
               className="w-full text-xs font-medium pl-10 pr-4 py-3 bg-white rounded-2xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-2xs"
             />
           </div>
@@ -176,7 +247,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 text-stone-400 hover:text-stone-600"
+              className="absolute right-3 text-stone-400 hover:text-stone-600 cursor-pointer"
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -187,14 +258,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full min-h-[46px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 mt-2"
+          className="w-full min-h-[46px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer disabled:opacity-70"
         >
           {isLoading ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
           ) : (
             <>
               <LogIn className="w-4 h-4" />
-              <span>Đăng Nhập</span>
+              <span>Đăng Nhập Qua API</span>
             </>
           )}
         </button>
@@ -208,7 +279,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="button"
               onClick={() => handleQuickPreset('alex.new@lovera.app', 'password123', false)}
-              className="p-2 bg-white/90 hover:bg-rose-50 rounded-xl border border-rose-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col"
+              className="p-2 bg-white/90 hover:bg-rose-50 rounded-xl border border-rose-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
             >
               <span className="text-rose-600 font-bold">1. Alex (Chưa kết nối)</span>
               <span className="text-[9px] text-stone-400">→ Chuyển đến Pairing</span>
@@ -216,11 +287,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <button
               type="button"
               onClick={() => handleQuickPreset('alex.paired@lovera.app', 'password123', true)}
-              className="p-2 bg-white/90 hover:bg-emerald-50 rounded-xl border border-emerald-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col"
+              className="p-2 bg-white/90 hover:bg-emerald-50 rounded-xl border border-emerald-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
             >
               <span className="text-emerald-700 font-bold">2. Alex (Đã ghép đôi)</span>
               <span className="text-[9px] text-stone-400">→ Vào thẳng Couple Home</span>
             </button>
+
+            {onNavigateToAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  playSound('click');
+                  onNavigateToAdmin();
+                }}
+                className="col-span-2 p-2 bg-gradient-to-r from-purple-50 via-indigo-50 to-rose-50 hover:from-purple-100 hover:to-rose-100 rounded-xl border border-purple-200 text-[10px] text-purple-900 font-bold transition-all shadow-2xs flex items-center justify-between cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-purple-600" />
+                  <span>3. Đăng nhập Quản Trị Viên (Admin Portal)</span>
+                </span>
+                <span className="text-[9px] bg-purple-600 text-white font-bold px-2 py-0.5 rounded-full">
+                  Mở Web Admin →
+                </span>
+              </button>
+            )}
           </div>
         </div>
       </form>
@@ -235,12 +325,26 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               playSound('click');
               onNavigateToRegister();
             }}
-            className="font-bold text-rose-600 hover:text-rose-700 hover:underline"
+            className="font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
           >
             Đăng ký ngay
           </button>
         </p>
       </div>
+
+      {/* OTP Verification Modal */}
+      {isOtpModalOpen && (
+        <VerifyOtpModal
+          email={email.trim()}
+          onSuccess={() => {
+            setIsOtpModalOpen(false);
+            const isPaired = email.toLowerCase().includes('paired');
+            const name = email.split('@')[0] || 'Alex';
+            onLoginSuccess(email.trim(), name, isPaired);
+          }}
+          onClose={() => setIsOtpModalOpen(false)}
+        />
+      )}
 
     </div>
   );

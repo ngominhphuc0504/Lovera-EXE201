@@ -36,7 +36,6 @@ public sealed class HttpDatePlanGenerator(HttpClient http, IConfiguration config
         var payload = JsonSerializer.Serialize(new
         {
             model,
-            store = false,
             response_format = new { type = "json_object" },
             messages = new object[]
             {

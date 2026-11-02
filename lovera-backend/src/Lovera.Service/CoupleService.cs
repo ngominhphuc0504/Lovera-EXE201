@@ -23,7 +23,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
         if (await repo.ActiveCouple(userId, ct) is not null) throw new AppProblem(409, "already_paired", "Tài khoản đã ghép đôi.");
         var now = clock.UtcNow;
         foreach (var previous in await repo.PendingInvitations(userId, now, ct)) previous.CancelledAtUtc = now;
-        var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(6));
+        var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(3));
         repo.Add(new PairingInvitation { CreatorUserId = userId, CodeHash = HashCode(code), CreatedAtUtc = now, ExpiresAtUtc = now.AddHours(lifetimeHours) });
         await repo.Save(ct);
         await tx.CommitAsync(ct);
@@ -41,7 +41,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
     public async Task<CoupleResponse> Join(Guid userId, string code, CancellationToken ct)
     {
         await RequireExistingUser(userId, ct);
-        if (string.IsNullOrWhiteSpace(code) || code.Length != 12 || !code.All(Uri.IsHexDigit))
+        if (string.IsNullOrWhiteSpace(code) || (code.Length != 6 && code.Length != 12) || !code.All(Uri.IsHexDigit))
             throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");
         var invitation = await repo.Invitation(HashCode(code.ToUpperInvariant()), ct)
             ?? throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");
@@ -121,10 +121,19 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
             couple.StartDate is { } start ? today.DayNumber - start.DayNumber + 1 : null, timeZone.Id);
     }
 
-    private async Task RequireExistingUser(Guid userId, CancellationToken ct)
+    private async Task RequireExistingUser(
+        Guid userId, CancellationToken ct)
     {
-        if (await repo.User(userId, ct) is null)
-            throw new AppProblem(404, "user_not_found", "Không tìm thấy tài khoản.");
+        var user = await repo.User(userId, ct);
+
+        if (user is null)
+            throw new AppProblem(
+                404, "user_not_found", "Không tìm thấy tài khoản.");
+
+        if (!user.EmailVerified)
+            throw new AppProblem(
+                403, "email_unverified",
+                "Cần xác thực email trước khi ghép đôi.");
     }
 
     private static CoupleResponse ToResponse(Couple c) =>
