@@ -8,14 +8,12 @@ interface RegisterScreenProps {
   onRegisterSuccess: (email: string, name: string) => void;
   onNavigateToLogin: () => void;
   onBackToWelcome: () => void;
-  onNavigateToAdmin?: () => void;
 }
 
 export const RegisterScreen: React.FC<RegisterScreenProps> = ({
   onRegisterSuccess,
   onNavigateToLogin,
   onBackToWelcome,
-  onNavigateToAdmin,
 }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -150,22 +148,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
             </span>
           </div>
 
-          {onNavigateToAdmin ? (
-            <button
-              type="button"
-              onClick={() => {
-                playSound('click');
-                onNavigateToAdmin();
-              }}
-              className="px-2.5 py-1 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
-              title="Chuyển sang Web Admin"
-            >
-              <Shield className="w-3 h-3 text-purple-600" />
-              <span>Admin</span>
-            </button>
-          ) : (
-            <div className="w-10"></div>
-          )}
+          <div className="w-10"></div>
         </div>
 
         {/* Title */}
@@ -324,19 +307,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
           </button>
         </p>
 
-        {onNavigateToAdmin && (
-          <button
-            type="button"
-            onClick={() => {
-              playSound('click');
-              onNavigateToAdmin();
-            }}
-            className="text-[11px] font-bold text-purple-600 hover:text-purple-700 underline underline-offset-2 inline-flex items-center gap-1 mx-auto cursor-pointer"
-          >
-            <Shield className="w-3 h-3 text-purple-600" />
-            <span>Vào Bảng Điều Khiển Quản Trị (Web Admin)</span>
-          </button>
-        )}
+        
       </div>
 
       {/* OTP Verification Modal */}

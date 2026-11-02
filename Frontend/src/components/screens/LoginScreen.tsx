@@ -8,14 +8,12 @@ interface LoginScreenProps {
   onLoginSuccess: (email: string, name: string, isAlreadyPaired: boolean) => void;
   onNavigateToRegister: () => void;
   onBackToWelcome: () => void;
-  onNavigateToAdmin?: () => void;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onLoginSuccess,
   onNavigateToRegister,
   onBackToWelcome,
-  onNavigateToAdmin,
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -59,13 +57,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     if (password.length < 6) {
       setError('Mật khẩu phải có tối thiểu 6 ký tự.');
       playSound('error');
-      return;
-    }
-
-    // Direct redirect to Admin Portal if logging in with admin email
-    if (trimmedEmail.toLowerCase().includes('admin') && onNavigateToAdmin) {
-      playSound('success');
-      onNavigateToAdmin();
       return;
     }
 
@@ -151,22 +142,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </span>
           </div>
 
-          {onNavigateToAdmin ? (
-            <button
-              type="button"
-              onClick={() => {
-                playSound('click');
-                onNavigateToAdmin();
-              }}
-              className="px-2.5 py-1 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
-              title="Chuyển sang Web Admin"
-            >
-              <Shield className="w-3 h-3 text-purple-600" />
-              <span>Admin</span>
-            </button>
-          ) : (
-            <div className="w-10"></div>
-          )}
+          <div className="w-10"></div>
         </div>
 
         {/* Title */}
@@ -293,24 +269,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <span className="text-[9px] text-stone-400">→ Vào thẳng Couple Home</span>
             </button>
 
-            {onNavigateToAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  playSound('click');
-                  onNavigateToAdmin();
-                }}
-                className="col-span-2 p-2 bg-gradient-to-r from-purple-50 via-indigo-50 to-rose-50 hover:from-purple-100 hover:to-rose-100 rounded-xl border border-purple-200 text-[10px] text-purple-900 font-bold transition-all shadow-2xs flex items-center justify-between cursor-pointer"
-              >
-                <span className="flex items-center gap-1.5">
-                  <Shield className="w-3.5 h-3.5 text-purple-600" />
-                  <span>3. Đăng nhập Quản Trị Viên (Admin Portal)</span>
-                </span>
-                <span className="text-[9px] bg-purple-600 text-white font-bold px-2 py-0.5 rounded-full">
-                  Mở Web Admin →
-                </span>
-              </button>
-            )}
+            
           </div>
         </div>
       </form>

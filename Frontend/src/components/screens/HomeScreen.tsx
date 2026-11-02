@@ -182,16 +182,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* CARD 1: COUPLE PROFILE (Alex & Sam & Connection Line)         */}
       {/* ------------------------------------------------------------- */}
       <section aria-label="Hồ sơ cặp đôi" className="mx-4 bg-white/95 backdrop-blur-md rounded-3xl p-3 border border-rose-100/90 shadow-xs">
-        <div className="relative flex items-center justify-between">
+        <div className="flex items-center justify-between gap-1.5 sm:gap-3">
           
-          {/* Partner 1: Alex */}
-          <div className="flex items-center gap-2.5 z-10">
+          {/* Partner 1: User A */}
+          <div className="flex items-center gap-2 min-w-0 max-w-[130px] sm:max-w-[145px]">
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className="relative cursor-pointer group select-none"
-              title="Nhấn để đổi ảnh đại diện của Alex"
+              className="relative cursor-pointer group select-none shrink-0"
+              title="Nhấn để đổi ảnh đại diện của bạn"
             >
-              <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-rose-400 ring-offset-2 ring-offset-white shadow-xs group-hover:scale-105 transition-transform">
+              <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-rose-400 ring-offset-2 ring-offset-white shadow-xs group-hover:scale-105 transition-transform">
                 <img
                   src={userA.avatar}
                   alt={userA.name}
@@ -205,43 +205,43 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   fileInputRef.current?.click();
                 }}
                 className="absolute -bottom-1 -left-1 w-4 h-4 rounded-full bg-white text-rose-600 shadow-xs border border-rose-100 flex items-center justify-center group-hover:scale-110 active:scale-95 transition-transform"
-                title="Đổi ảnh đại diện Alex"
-                aria-label="Đổi ảnh đại diện Alex"
+                title="Đổi ảnh đại diện"
+                aria-label="Đổi ảnh đại diện"
               >
                 <Camera className="w-2.5 h-2.5 text-rose-600" />
               </button>
-              <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5 pointer-events-none">
+              <span className="absolute bottom-0 right-0 flex h-3 w-3 pointer-events-none">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-white"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border-2 border-white"></span>
               </span>
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <h3 className="font-bold text-xs text-stone-900 leading-tight">{userA.name}</h3>
-                <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200/60">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1">
+                <h3 className="font-bold text-xs text-stone-900 leading-tight truncate">{userA.name}</h3>
+                <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   Online
                 </span>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-center gap-1 mt-0.5">
-                <Smile className="w-2.5 h-2.5 text-rose-400" />
-                <span>{getStatusLabel(userA.status)}</span>
+              <p className="text-[10px] text-stone-500 flex items-center gap-1 mt-0.5 font-normal truncate">
+                <Smile className="w-2.5 h-2.5 text-rose-400 shrink-0" />
+                <span className="truncate">{getStatusLabel(userA.status)}</span>
               </p>
             </div>
           </div>
 
-          {/* Romantic Connection Line with Pulsing Heart */}
-          <div className="absolute inset-x-20 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none">
-            <div className="w-full h-[1.5px] bg-gradient-to-r from-rose-300 via-rose-400 to-purple-300 rounded-full"></div>
-            <div className="absolute bg-white px-2 py-0.5 rounded-full border border-rose-200 shadow-xs flex items-center">
+          {/* Center Romantic Connection (Always Centered & Never Overlapped) */}
+          <div className="flex flex-col items-center justify-center px-1 shrink-0 relative">
+            <div className="w-6 sm:w-10 h-[1.5px] bg-gradient-to-r from-rose-300 via-rose-400 to-purple-300 rounded-full"></div>
+            <div className="absolute bg-white p-1 rounded-full border border-rose-200 shadow-xs flex items-center justify-center">
               <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 animate-heart-pulse" />
             </div>
           </div>
 
-          {/* Partner 2: Sam */}
-          <div className="flex items-center gap-2.5 z-10 flex-row-reverse text-right">
-            <div className="relative">
-              <div className="w-12 h-12 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs">
+          {/* Partner 2: User B */}
+          <div className="flex items-center gap-2 min-w-0 max-w-[130px] sm:max-w-[145px] flex-row-reverse text-right">
+            <div className="relative shrink-0">
+              <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs">
                 <img
                   src={userB.avatar}
                   alt={userB.name}
@@ -249,36 +249,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 />
               </div>
               {userB.isOnline ? (
-                <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5">
+                <span className="absolute bottom-0 right-0 flex h-3 w-3">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-white"></span>
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border-2 border-white"></span>
                 </span>
               ) : (
-                <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-stone-300 border-2 border-white rounded-full"></span>
+                <span className="absolute bottom-0 right-0 w-3 h-3 bg-stone-300 border-2 border-white rounded-full"></span>
               )}
             </div>
-            <div>
-              <div className="flex items-center justify-end gap-1.5">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-end gap-1">
                 {userB.isOnline ? (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200/60">
+                  <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                     Online
                   </span>
                 ) : (
-                  <span className="text-[9px] font-semibold text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
-                      {getStatusLabel(userB.status)}
+                  <span className="text-[9px] font-semibold text-stone-400 bg-stone-100 px-1.5 py-0.2 rounded-full shrink-0">
+                    {getStatusLabel(userB.status)}
                   </span>
                 )}
-                <h3 className="font-bold text-xs text-stone-900 leading-tight">{userB.name}</h3>
+                <h3 className="font-bold text-xs text-stone-900 leading-tight truncate">{userB.name}</h3>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-center justify-end gap-0.5 mt-0.5">
-                <Flame className="w-2.5 h-2.5 text-amber-500" />
-                <span>{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
+              <p className="text-[10px] text-stone-500 flex items-center justify-end gap-0.5 mt-0.5 font-normal truncate" title={`${getStatusLabel(userB.status)}${userB.activity ? ' · ' + getActivityLabel(userB.activity) : ''}`}>
+                <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                <span className="truncate">{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
               </p>
             </div>
           </div>
         </div>
-
       </section>
 
       {/* ------------------------------------------------------------- */}
