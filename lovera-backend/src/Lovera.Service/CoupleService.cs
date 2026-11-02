@@ -23,7 +23,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
         if (await repo.ActiveCouple(userId, ct) is not null) throw new AppProblem(409, "already_paired", "Tài khoản đã ghép đôi.");
         var now = clock.UtcNow;
         foreach (var previous in await repo.PendingInvitations(userId, now, ct)) previous.CancelledAtUtc = now;
-        var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(6));
+        var code = Convert.ToHexString(RandomNumberGenerator.GetBytes(3));
         repo.Add(new PairingInvitation { CreatorUserId = userId, CodeHash = HashCode(code), CreatedAtUtc = now, ExpiresAtUtc = now.AddHours(lifetimeHours) });
         await repo.Save(ct);
         await tx.CommitAsync(ct);
@@ -41,7 +41,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
     public async Task<CoupleResponse> Join(Guid userId, string code, CancellationToken ct)
     {
         await RequireExistingUser(userId, ct);
-        if (string.IsNullOrWhiteSpace(code) || code.Length != 12 || !code.All(Uri.IsHexDigit))
+        if (string.IsNullOrWhiteSpace(code) || (code.Length != 6 && code.Length != 12) || !code.All(Uri.IsHexDigit))
             throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");
         var invitation = await repo.Invitation(HashCode(code.ToUpperInvariant()), ct)
             ?? throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");

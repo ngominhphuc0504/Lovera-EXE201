@@ -139,3 +139,88 @@ input[type=range].slider-romantic::-webkit-slider-runnable-track {
   background: #fce7f3;
   border-radius: 9999px;
 }
+
+
+/* Seasonal Garden Falling Particles Keyframes */
+@keyframes fallingPetal {
+  0% {
+    transform: translate(0, -10px) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.9;
+  }
+  85% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(25px, 240px) rotate(260deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fallingLeaf {
+  0% {
+    transform: translate(0, -10px) rotate(0deg);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.95;
+    transform: translate(18px, 60px) rotate(40deg);
+  }
+  55% {
+    transform: translate(-12px, 140px) rotate(-35deg);
+  }
+  85% {
+    transform: translate(22px, 205px) rotate(70deg);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translate(8px, 250px) rotate(140deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fallingSnow {
+  0% {
+    transform: translate(0, -10px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.9;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(12px, 250px);
+    opacity: 0;
+  }
+}
+
+@keyframes fireflyPulse {
+  0%, 100% {
+    transform: translateY(0px) scale(0.7);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translateY(-8px) scale(1.2);
+    opacity: 0.95;
+  }
+}
+
+.animate-falling-petal {
+  animation: fallingPetal 6s cubic-bezier(0.25, 0.46, 0.45, 0.94) infinite;
+}
+
+.animate-falling-leaf {
+  animation: fallingLeaf 7s ease-in-out infinite;
+}
+
+.animate-falling-snow {
+  animation: fallingSnow 5s linear infinite;
+}
+
+.animate-firefly {
+  animation: fireflyPulse 3s ease-in-out infinite;
+}

@@ -1,8 +1,34 @@
-import { ConnectionStatusOption, CoupleData, DatePlan, PointHistoryItem, AppNotification } from '../types';
+import { ConnectionActivityOption, ConnectionStatusOption, CoupleData, DatePlan, PointHistoryItem, AppNotification, MemoryItem } from '../types';
 import avatarAlex from '../assets/images/partner_avatar_alex_1790144456462.jpg';
 import avatarSam from '../assets/images/partner_avatar_sam_1790144470464.jpg';
 
+export { avatarAlex, avatarSam };
+
 export const INITIAL_STATUS_OPTIONS: ConnectionStatusOption[] = [
+  {
+    type: 'Available',
+    label: 'Đang rảnh',
+    icon: '✨',
+    description: 'Sẵn sàng tâm sự cùng người yêu',
+    badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  },
+  {
+    type: 'Busy',
+    label: 'Đang bận',
+    icon: '⏳',
+    description: 'Hiện chưa thể trò chuyện',
+    badgeColor: 'bg-amber-50 text-amber-700 border-amber-200'
+  },
+  {
+    type: 'Away',
+    label: 'Tạm vắng',
+    icon: '🌙',
+    description: 'Tạm thời không có mặt',
+    badgeColor: 'bg-stone-50 text-stone-700 border-stone-200'
+  }
+];
+
+export const INITIAL_ACTIVITY_OPTIONS: ConnectionActivityOption[] = [
   {
     type: 'Studying',
     label: 'Đang học bài',
@@ -37,13 +63,6 @@ export const INITIAL_STATUS_OPTIONS: ConnectionStatusOption[] = [
     icon: '☕',
     description: 'Thư giãn, đọc sách hoặc thể thao',
     badgeColor: 'bg-rose-50 text-rose-700 border-rose-200'
-  },
-  {
-    type: 'Available',
-    label: 'Đang rảnh',
-    icon: '✨',
-    description: 'Sẵn sàng tâm sự cùng người yêu',
-    badgeColor: 'bg-emerald-50 text-emerald-700 border-emerald-200'
   }
 ];
 
@@ -59,7 +78,6 @@ export const INITIAL_COUPLE: CoupleData = {
     avatar: avatarAlex,
     email: 'alex@lovera.app',
     status: 'Available',
-    availableAt: 'Ngay bây giờ',
     isOnline: true,
     batteryLevel: 88
   },
@@ -68,8 +86,8 @@ export const INITIAL_COUPLE: CoupleData = {
     name: 'Sam',
     avatar: avatarSam,
     email: 'sam@lovera.app',
-    status: 'Studying',
-    availableAt: '16:30',
+    status: 'Busy',
+    activity: 'Studying',
     isOnline: false,
     batteryLevel: 62
   }
@@ -120,10 +138,10 @@ export const INITIAL_DATE_PLANS: DatePlan[] = [
 export const INITIAL_POINT_HISTORY: PointHistoryItem[] = [
   {
     id: 'pt_1',
-    action: 'Hoàn thành buổi hẹn "Làm Bánh Ngọt"',
-    points: 20,
+    action: 'Bón phân hữu cơ & vun xới đất',
+    points: 10,
     timestamp: 'Hôm qua, 20:30',
-    by: 'Alex & Sam'
+    by: 'Alex'
   },
   {
     id: 'pt_2',
@@ -134,10 +152,10 @@ export const INITIAL_POINT_HISTORY: PointHistoryItem[] = [
   },
   {
     id: 'pt_3',
-    action: 'Check-in vườn hoa mỗi ngày',
+    action: 'Tưới nước cho cây tình yêu',
     points: 5,
     timestamp: 'Hôm nay, 08:00',
-    by: 'Sam'
+    by: 'Alex'
   },
 ];
 
@@ -157,5 +175,86 @@ export const INITIAL_NOTIFICATIONS: AppNotification[] = [
     time: 'Hôm qua',
     type: 'planner',
     read: true
+  }
+];
+
+export const INITIAL_MEMORIES: MemoryItem[] = [
+  {
+    id: 'mem_user_campfire',
+    imageUrl: 'https://images.unsplash.com/photo-1526772662000-3f88f10405ff?w=800&auto=format&fit=crop&q=80',
+    caption: 'sadasd',
+    date: '2026-10-30',
+    location: 'Quanh bếp lửa ấm áp',
+    tag: 'Đời thường',
+    authorName: 'Alex',
+    authorAvatar: avatarAlex,
+    likes: 1,
+    isLiked: true,
+    createdAt: '2026-10-30T12:00:00Z'
+  },
+  {
+    id: 'mem_1',
+    imageUrl: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=800&auto=format&fit=crop&q=80',
+    caption: 'Chuyến đi Đà Lạt đầu tiên của hai đứa, trời se lạnh nhưng có bàn tay ai đó thật ấm áp.',
+    date: '2025-10-15',
+    location: 'Hồ Xuân Hương, Đà Lạt',
+    tag: 'Du lịch',
+    authorName: 'Alex',
+    authorAvatar: avatarAlex,
+    likes: 24,
+    isLiked: true,
+    createdAt: '2025-10-15T18:30:00Z'
+  },
+  {
+    id: 'mem_2',
+    imageUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop&q=80',
+    caption: 'Bữa tối lãng mạn kỷ niệm 100 ngày bên nhau dưới ánh nến và tiếng sóng ven sông.',
+    date: '2025-12-31',
+    location: 'Bistro Bạch Đằng, Quận 1',
+    tag: 'Kỷ niệm',
+    authorName: 'Sam',
+    authorAvatar: avatarSam,
+    likes: 38,
+    isLiked: false,
+    createdAt: '2025-12-31T20:45:00Z'
+  },
+  {
+    id: 'mem_3',
+    imageUrl: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=800&auto=format&fit=crop&q=80',
+    caption: 'Buổi chiều thảnh thơi cùng đọc sách và chia sẻ từng ngụm trà ấm tại quán quen.',
+    date: '2026-01-18',
+    location: 'The Workshop Coffee, Quận 1',
+    tag: 'Hẹn hò',
+    authorName: 'Alex',
+    authorAvatar: avatarAlex,
+    likes: 19,
+    isLiked: true,
+    createdAt: '2026-01-18T16:15:00Z'
+  },
+  {
+    id: 'mem_4',
+    imageUrl: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=800&auto=format&fit=crop&q=80',
+    caption: 'Cùng nhau tưới khu vườn tình yêu, đóa hoa đầu tiên đã nở rực rỡ như nụ cười của em.',
+    date: '2026-02-14',
+    location: 'Ban công nhỏ ngập nắng',
+    tag: 'Khoảnh khắc',
+    authorName: 'Sam',
+    authorAvatar: avatarSam,
+    likes: 45,
+    isLiked: false,
+    createdAt: '2026-02-14T09:20:00Z'
+  },
+  {
+    id: 'mem_5',
+    imageUrl: 'https://images.unsplash.com/photo-1519741497674-611481863552?w=800&auto=format&fit=crop&q=80',
+    caption: 'Ngắm hoàng hôn trên cầu Ánh Sao, khoảnh khắc bình yên nhất sau chuỗi ngày bận rộn.',
+    date: '2026-03-08',
+    location: 'Cầu Ánh Sao, Quận 7',
+    tag: 'Hẹn hò',
+    authorName: 'Alex',
+    authorAvatar: avatarAlex,
+    likes: 31,
+    isLiked: true,
+    createdAt: '2026-03-08T18:00:00Z'
   }
 ];

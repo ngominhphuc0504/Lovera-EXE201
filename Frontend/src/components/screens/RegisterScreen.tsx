@@ -1,17 +1,21 @@
 import React, { useState } from 'react';
-import { Heart, Lock, Mail, User as UserIcon, ArrowLeft, Eye, EyeOff, AlertCircle, UserPlus, CheckCircle2 } from 'lucide-react';
+import { Heart, Lock, Mail, User as UserIcon, ArrowLeft, Eye, EyeOff, AlertCircle, UserPlus, CheckCircle2, Shield, Sparkles } from 'lucide-react';
 import { playSound } from '../../utils/audio';
+import { authService } from '../../services/authService';
+import { VerifyOtpModal } from '../modals/VerifyOtpModal';
 
 interface RegisterScreenProps {
   onRegisterSuccess: (email: string, name: string) => void;
   onNavigateToLogin: () => void;
   onBackToWelcome: () => void;
+  onNavigateToAdmin?: () => void;
 }
 
 export const RegisterScreen: React.FC<RegisterScreenProps> = ({
   onRegisterSuccess,
   onNavigateToLogin,
   onBackToWelcome,
+  onNavigateToAdmin,
 }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -20,15 +24,19 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [showOfflineFallback, setShowOfflineFallback] = useState(false);
 
   // Email format validation
   const validateEmail = (val: string) => {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setShowOfflineFallback(false);
 
     const trimmedName = name.trim();
     const trimmedEmail = email.trim();
@@ -79,12 +87,43 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
     setIsLoading(true);
     playSound('click');
 
-    setTimeout(() => {
+    try {
+      // Call Real Backend API: POST /api/auth/register
+      await authService.register({
+        email: trimmedEmail,
+        password,
+        displayName: trimmedName,
+      });
+
       setIsLoading(false);
       playSound('success');
-      // Registered user is new -> always un-paired, moves to Pairing flow
-      onRegisterSuccess(trimmedEmail, trimmedName);
-    }, 700);
+      setRegisteredEmail(trimmedEmail);
+      setIsOtpModalOpen(true);
+    } catch (err: any) {
+      setIsLoading(false);
+      playSound('error');
+      setError(err?.message || 'Không thể đăng ký tài khoản qua API backend.');
+      setShowOfflineFallback(true);
+    }
+  };
+
+  // Called when OTP verification succeeds
+  const handleOtpVerified = async () => {
+    setIsOtpModalOpen(false);
+    try {
+      // Auto-login with credentials
+      await authService.login({ email: registeredEmail, password });
+    } catch {
+      // ignore auto-login failure
+    }
+    onRegisterSuccess(registeredEmail, name.trim());
+  };
+
+  // Continue demo/offline mode
+  const handleBypassToDemo = () => {
+    playSound('chime');
+    setIsOtpModalOpen(false);
+    onRegisterSuccess(email.trim() || 'user@lovera.app', name.trim() || 'Alex');
   };
 
   return (
@@ -98,15 +137,35 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
               playSound('click');
               onBackToWelcome();
             }}
-            className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs"
+            className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
             title="Quay lại"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
-            LOVERA AUTH
-          </span>
-          <div className="w-10"></div>
+          
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
+              LOVERA AUTH API
+            </span>
+          </div>
+
+          {onNavigateToAdmin ? (
+            <button
+              type="button"
+              onClick={() => {
+                playSound('click');
+                onNavigateToAdmin();
+              }}
+              className="px-2.5 py-1 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
+              title="Chuyển sang Web Admin"
+            >
+              <Shield className="w-3 h-3 text-purple-600" />
+              <span>Admin</span>
+            </button>
+          ) : (
+            <div className="w-10"></div>
+          )}
         </div>
 
         {/* Title */}
@@ -115,10 +174,10 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
             <UserPlus className="w-6 h-6" />
           </div>
           <h2 className="font-serif-romantic text-2xl font-bold text-stone-900">
-            Tạo Tài Khoản
+            Tạo Tài Khoản Mới
           </h2>
           <p className="text-xs text-stone-500 mt-0.5">
-            Bắt đầu hành trình gắn kết cùng người thương
+            Kết nối API Backend thực tế .NET 8 (Brevo OTP)
           </p>
         </div>
       </div>
@@ -128,9 +187,20 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
         
         {/* Error Notification Banner */}
         {error && (
-          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-2xl flex items-center gap-2 animate-shake shadow-2xs">
-            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-            <span className="font-medium">{error}</span>
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-2xl flex flex-col gap-1.5 animate-shake shadow-2xs">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span className="font-medium">{error}</span>
+            </div>
+            {showOfflineFallback && (
+              <button
+                type="button"
+                onClick={handleBypassToDemo}
+                className="text-[11px] font-bold text-purple-700 hover:text-purple-900 underline text-left pt-1 cursor-pointer"
+              >
+                👉 Máy chủ Database chưa bật? Nhấn đây để tiếp tục chế độ Thử nghiệm (Demo)
+              </button>
+            )}
           </div>
         )}
 
@@ -168,7 +238,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
                 setEmail(e.target.value);
                 if (error) setError('');
               }}
-              placeholder="alex@lovera.app"
+              placeholder="alex@example.com"
               className="w-full text-xs font-medium pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-2xs"
             />
           </div>
@@ -177,7 +247,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
         {/* Password Field */}
         <div className="space-y-1">
           <label className="block text-xs font-bold text-stone-700">
-            Mật khẩu:
+            Mật khẩu (Tối thiểu 6 ký tự):
           </label>
           <div className="relative flex items-center">
             <Lock className="absolute left-3.5 w-4 h-4 text-stone-400" />
@@ -194,7 +264,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 text-stone-400 hover:text-stone-600"
+              className="absolute right-3 text-stone-400 hover:text-stone-600 cursor-pointer"
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -225,21 +295,21 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
         <button
           type="submit"
           disabled={isLoading}
-          className="w-full min-h-[46px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 mt-2"
+          className="w-full min-h-[46px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-rose-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 mt-2 cursor-pointer disabled:opacity-70"
         >
           {isLoading ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
           ) : (
             <>
               <UserPlus className="w-4 h-4" />
-              <span>Tạo Tài Khoản & Tiếp Tục</span>
+              <span>Đăng Ký Tài Khoản & Nhận OTP</span>
             </>
           )}
         </button>
       </form>
 
       {/* Footer Switcher */}
-      <div className="pt-2 text-center">
+      <div className="pt-2 text-center space-y-1">
         <p className="text-xs text-stone-500">
           Đã có tài khoản LOVERA?{' '}
           <button
@@ -248,12 +318,35 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
               playSound('click');
               onNavigateToLogin();
             }}
-            className="font-bold text-rose-600 hover:text-rose-700 hover:underline"
+            className="font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
           >
             Đăng nhập
           </button>
         </p>
+
+        {onNavigateToAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              playSound('click');
+              onNavigateToAdmin();
+            }}
+            className="text-[11px] font-bold text-purple-600 hover:text-purple-700 underline underline-offset-2 inline-flex items-center gap-1 mx-auto cursor-pointer"
+          >
+            <Shield className="w-3 h-3 text-purple-600" />
+            <span>Vào Bảng Điều Khiển Quản Trị (Web Admin)</span>
+          </button>
+        )}
       </div>
+
+      {/* OTP Verification Modal */}
+      {isOtpModalOpen && (
+        <VerifyOtpModal
+          email={registeredEmail}
+          onSuccess={handleOtpVerified}
+          onClose={() => setIsOtpModalOpen(false)}
+        />
+      )}
 
     </div>
   );

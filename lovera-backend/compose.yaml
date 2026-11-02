@@ -17,7 +17,7 @@ services:
   mailpit:
     image: axllent/mailpit:v1.20
     ports:
-      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:8035:8025"
       - "127.0.0.1:1025:1025"
   api:
     build:

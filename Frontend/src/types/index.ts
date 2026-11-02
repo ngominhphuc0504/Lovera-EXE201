@@ -7,9 +7,76 @@ export type Screen =
   | 'auth' 
   | 'pairing' 
   | 'home' 
+  | 'chat' 
   | 'planner' 
+  | 'shared' 
   | 'garden' 
-  | 'profile';
+  | 'profile'
+  | 'admin';
+
+export interface AdminUserAccount {
+  id: string;
+  email: string;
+  name: string;
+  avatar: string;
+  role: 'Admin' | 'Member';
+  isEmailVerified: boolean;
+  isLocked: boolean;
+  createdAt: string;
+  pairedWith?: string;
+  partnerAvatar?: string;
+  lovePoints?: number;
+  gardenStage?: GardenStage;
+  activeSeason?: GardenSeason;
+  startDate?: string;
+}
+
+export interface AdminSystemMetric {
+  totalUsers: number;
+  activeUsersToday: number;
+  pairedCouples: number;
+  pendingPairings: number;
+  totalLovePoints: number;
+  totalMemories: number;
+  totalDatePlans: number;
+  aiQueriesToday: number;
+}
+
+export interface AdminActivityLog {
+  id: string;
+  action: string;
+  actor: string;
+  target: string;
+  timestamp: string;
+  type: 'auth' | 'couple' | 'garden' | 'content' | 'system';
+  status: 'success' | 'warning' | 'error';
+  ip?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  sender: 'user' | 'bot';
+  text: string;
+  timestamp: string;
+  suggestions?: string[];
+  isGemini?: boolean;
+}
+
+export type MemoryTag = 'Hẹn hò' | 'Kỷ niệm' | 'Du lịch' | 'Đời thường' | 'Khoảnh khắc';
+
+export interface MemoryItem {
+  id: string;
+  imageUrl: string;
+  caption: string;
+  date: string; // YYYY-MM-DD
+  location?: string;
+  tag: MemoryTag;
+  authorName: string;
+  authorAvatar: string;
+  likes: number;
+  isLiked?: boolean;
+  createdAt: string;
+}
 
 export type DateType = 'Romantic' | 'Cozy' | 'Adventure';
 export type TimePreference = 'Morning' | 'Afternoon' | 'Evening' | 'FullDay';
@@ -21,21 +88,30 @@ export interface Partner {
   avatar: string;
   email: string;
   status: ConnectionStatusType;
-  availableAt?: string;
+  activity?: ConnectionActivityType;
   isOnline: boolean;
   batteryLevel?: number;
 }
 
-export type ConnectionStatusType = 
+export type ConnectionStatusType = 'Available' | 'Busy' | 'Away';
+
+export type ConnectionActivityType =
   | 'Studying'
   | 'Working'
   | 'Sleeping'
   | 'On the road'
-  | 'Personal time'
-  | 'Available';
+  | 'Personal time';
 
 export interface ConnectionStatusOption {
   type: ConnectionStatusType;
+  label: string;
+  icon: string;
+  description: string;
+  badgeColor: string;
+}
+
+export interface ConnectionActivityOption {
+  type: ConnectionActivityType;
   label: string;
   icon: string;
   description: string;
@@ -78,7 +154,9 @@ export interface DatePlan {
   createdAt: string;
 }
 
-export type GardenStage = 1 | 2 | 3;
+export type GardenStage = 1 | 2 | 3 | 4 | 5;
+
+export type GardenSeason = 'spring' | 'summer' | 'autumn' | 'winter';
 
 export interface PointHistoryItem {
   id: string;
@@ -86,6 +164,7 @@ export interface PointHistoryItem {
   points: number;
   timestamp: string;
   by: string;
+  category?: 'water' | 'fertilize' | 'sun' | 'memory' | 'chat' | 'dating';
 }
 
 export interface AppNotification {
@@ -93,6 +172,6 @@ export interface AppNotification {
   title: string;
   message: string;
   time: string;
-  type: 'garden' | 'planner' | 'status';
+  type: 'garden' | 'planner' | 'status' | 'memory';
   read: boolean;
 }

@@ -15,9 +15,13 @@ import {
   X, 
   Send,
   AlertTriangle,
-  ArrowRight
+  ArrowRight,
+  User,
+  Loader2
 } from 'lucide-react';
 import { playSound } from '../../utils/audio';
+import { Partner } from '../../types';
+import { coupleService } from '../../services/coupleService';
 
 export type PairingStage = 
   | 'idle'                // 1. Chưa kết nối: Chọn Tạo mã hoặc Nhập mã
@@ -29,23 +33,58 @@ export type PairingStage =
 
 interface PairingScreenProps {
   myPairCode: string;
-  onPairSuccess: (partnerName: string) => void;
+  initialStage?: PairingStage;
+  currentUser?: Partner;
+  bannerMessage?: string;
+  onPairSuccess: (partner: { name: string; email: string; avatar: string } | string) => void;
   onBackToAuth?: () => void;
+  onOpenProfile?: () => void;
+  onNavigateToAdmin?: () => void;
 }
 
 export const PairingScreen: React.FC<PairingScreenProps> = ({
   myPairCode,
+  initialStage = 'idle',
+  currentUser,
+  bannerMessage,
   onPairSuccess,
   onBackToAuth,
+  onOpenProfile,
+  onNavigateToAdmin,
 }) => {
   // Generate 6-char clean code if needed
   const default6Char = (myPairCode.replace(/[^A-Z0-9]/gi, '').slice(0, 6) || 'LV8942').toUpperCase();
   const [currentCode, setCurrentCode] = useState<string>(default6Char);
-  const [stage, setStage] = useState<PairingStage>('idle');
+  const [stage, setStage] = useState<PairingStage>(initialStage);
   const [inputCode, setInputCode] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
   const [shared, setShared] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const [showBanner, setShowBanner] = useState<boolean>(Boolean(bannerMessage));
+  const [isGeneratingCode, setIsGeneratingCode] = useState<boolean>(false);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+
+  // Sync stage if initialStage prop changes
+  useEffect(() => {
+    if (initialStage) {
+      setStage(initialStage);
+    }
+  }, [initialStage]);
+
+  // Sync currentCode if myPairCode changes
+  useEffect(() => {
+    if (myPairCode) {
+      const clean = (myPairCode.replace(/[^A-Z0-9]/gi, '').slice(0, 6) || 'LV8942').toUpperCase();
+      setCurrentCode(clean);
+    }
+  }, [myPairCode]);
+
+  useEffect(() => {
+    if (bannerMessage) {
+      setShowBanner(true);
+    }
+  }, [bannerMessage]);
+
   const [partnerCandidate, setPartnerCandidate] = useState<{
     name: string;
     email: string;
@@ -56,16 +95,56 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
   });
 
-  // Handle regenerating a 6-character code
-  const handleRegenerateCode = () => {
+  // Handle generating a real pairing code from backend
+  const handleRegenerateCode = async () => {
+    setIsGeneratingCode(true);
+    setError('');
+    playSound('click');
+    try {
+      const res = await coupleService.createPairingCode();
+      if (res?.code) {
+        setCurrentCode(res.code.toUpperCase());
+        return;
+      }
+    } catch (err: any) {
+      console.warn('[PairingScreen] Real createPairingCode failed, falling back to local:', err);
+    } finally {
+      setIsGeneratingCode(false);
+    }
+
+    // Fallback if not authenticated or offline
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let newCode = 'LV';
     for (let i = 0; i < 4; i++) {
       newCode += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     setCurrentCode(newCode);
-    playSound('click');
   };
+
+  // When transitioning to 'create' stage, auto generate code from API
+  useEffect(() => {
+    if (stage === 'create') {
+      handleRegenerateCode();
+    }
+  }, [stage]);
+
+  // Polling check if partner has joined while waiting
+  useEffect(() => {
+    if (stage !== 'create' && stage !== 'waiting_partner') return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await coupleService.getStatus();
+        if (res.isPaired) {
+          playSound('success');
+          setStage('success');
+          clearInterval(interval);
+        }
+      } catch {
+        // ignore polling error
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [stage]);
 
   const handleCopyCode = () => {
     navigator.clipboard?.writeText(currentCode);
@@ -80,35 +159,34 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
     setTimeout(() => setShared(false), 2200);
   };
 
-  // User B: Submits 6-character code to send pairing request
-  const handleSendPairRequest = (e: React.FormEvent) => {
+  // User B: Submits code to join couple via Real Backend API
+  const handleSendPairRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     const formatted = inputCode.trim().toUpperCase();
 
     if (!formatted) {
-      setError('Vui lòng nhập mã kết nối gồm 6 ký tự.');
+      setError('Vui lòng nhập mã kết nối.');
       playSound('error');
       return;
     }
 
-    if (formatted.length !== 6) {
-      setError('Mã kết nối phải có chính xác 6 ký tự (Ví dụ: LV8942).');
-      playSound('error');
-      return;
-    }
-
+    setIsSubmitting(true);
     playSound('click');
-    // Move to Waiting for confirmation stage
-    setStage('waiting_partner');
 
-    // Simulate notification arriving at User A after 2.5s for seamless testing
-    const timer = setTimeout(() => {
-      // If user is testing both sides, provide quick confirmation dialog
-    }, 1500);
-
-    return () => clearTimeout(timer);
+    try {
+      // Call Real Backend API: POST /api/couples/join
+      await coupleService.joinCouple(formatted);
+      setIsSubmitting(false);
+      playSound('success');
+      setStage('success');
+    } catch (err: any) {
+      setIsSubmitting(false);
+      const msg = err?.message || 'Không thể ghép đôi với mã này. Vui lòng kiểm tra lại.';
+      setError(msg);
+      playSound('error');
+    }
   };
 
   // User A: Confirms partner request
@@ -125,7 +203,11 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
 
   // Final confirmation to enter Home
   const handleEnterHome = () => {
-    onPairSuccess(partnerCandidate.name);
+    onPairSuccess({
+      name: partnerCandidate.name,
+      email: partnerCandidate.email,
+      avatar: partnerCandidate.avatar
+    });
   };
 
   return (
@@ -165,8 +247,96 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
           <span>Ghép Đôi 1:1</span>
         </div>
 
-        <div className="w-10"></div>
+        <div className="flex items-center gap-1.5">
+          {onNavigateToAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                playSound('click');
+                onNavigateToAdmin();
+              }}
+              className="px-2 py-1.5 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
+              title="Chuyển sang Web Admin"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+              <span>Admin</span>
+            </button>
+          )}
+          {onOpenProfile ? (
+            <button
+              type="button"
+              onClick={() => {
+                playSound('click');
+                onOpenProfile();
+              }}
+              className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
+              title="Xem Hồ sơ cá nhân (Profile)"
+            >
+              <User className="w-4 h-4" />
+            </button>
+          ) : (
+            <div className="w-10"></div>
+          )}
+        </div>
       </div>
+
+      {/* Banner / Notification Toast (e.g. After Unpair) */}
+      {showBanner && bannerMessage && (
+        <div className="mx-auto w-full max-w-sm mt-3 p-3 bg-rose-50 border border-rose-200/90 rounded-2xl flex items-center justify-between gap-2 shadow-xs animate-fade-in">
+          <div className="flex items-center gap-2 text-rose-800 text-xs font-medium">
+            <CheckCircle2 className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{bannerMessage}</span>
+          </div>
+          <button
+            onClick={() => setShowBanner(false)}
+            className="text-stone-400 hover:text-stone-600 p-1"
+            title="Đóng thông báo"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Current Logged-in User Info Badge */}
+      {currentUser && (
+        <div className="mx-auto w-full max-w-sm mt-2.5 px-3.5 py-2 bg-white/95 rounded-2xl border border-rose-100 shadow-2xs flex items-center justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="relative shrink-0">
+              <img
+                src={currentUser.avatar}
+                alt={currentUser.name}
+                className="w-7 h-7 rounded-full object-cover ring-2 ring-rose-300"
+              />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border border-white rounded-full"></span>
+            </div>
+            <div className="min-w-0 text-left">
+              <p className="text-xs font-bold text-stone-800 truncate leading-tight">
+                {currentUser.name}
+              </p>
+              <p className="text-[10px] text-stone-400 truncate">
+                {currentUser.email}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 border border-rose-200/80 px-2 py-0.5 rounded-full">
+              Chưa ghép đôi
+            </span>
+            {onOpenProfile && (
+              <button
+                onClick={() => {
+                  playSound('click');
+                  onOpenProfile();
+                }}
+                className="text-[10px] font-bold text-stone-600 hover:text-rose-600 bg-stone-100 hover:bg-rose-50 px-2 py-0.5 rounded-full border border-stone-200 transition-colors"
+                title="Mở trang Profile"
+              >
+                Hồ sơ →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ------------------------------------------------------------- */}
       {/* 1. TRẠNG THÁI: CHƯA KẾT NỐI (IDLE HUB)                         */}
@@ -261,12 +431,12 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
               Mã bảo mật 6 ký tự
             </span>
 
-            {/* Prominent Monospace Characters */}
-            <div className="flex items-center justify-center gap-1.5 py-1">
-              {currentCode.split('').map((char, index) => (
+            {/* Prominent Monospace Characters (Exact 6 Characters) */}
+            <div className="flex items-center justify-center gap-2 py-1">
+              {(currentCode.slice(0, 6) || 'LV8942').split('').map((char, index) => (
                 <div
                   key={index}
-                  className="w-10 h-12 rounded-xl bg-rose-50/80 border-2 border-rose-200 flex items-center justify-center font-mono font-black text-xl text-rose-600 shadow-2xs"
+                  className="w-11 h-14 rounded-2xl bg-rose-50/90 border-2 border-rose-300 flex items-center justify-center font-mono font-black text-2xl text-rose-600 shadow-2xs"
                 >
                   {char}
                 </div>
@@ -284,12 +454,14 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={handleRegenerateCode}
-                className="min-h-[40px] px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all"
-                title="Tạo mã 6 ký tự mới"
+                disabled={isGeneratingCode}
+                className="min-h-[40px] px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all disabled:opacity-50"
+                title="Tạo mã kết nối mới từ API"
               >
-                <RefreshCw className="w-3.5 h-3.5 text-stone-500" />
-                <span>Đổi mã</span>
+                <RefreshCw className={`w-3.5 h-3.5 text-stone-500 ${isGeneratingCode ? 'animate-spin' : ''}`} />
+                <span>{isGeneratingCode ? 'Đang tạo...' : 'Đổi mã'}</span>
               </button>
             </div>
 
@@ -395,10 +567,20 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
           {/* Action Button: Gửi yêu cầu ghép đôi */}
           <button
             type="submit"
-            className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-md shadow-purple-600/25 active:scale-98 transition-all flex items-center justify-center gap-2"
+            disabled={isSubmitting}
+            className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-md shadow-purple-600/25 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            <Send className="w-4 h-4" />
-            <span>Gửi Yêu Cầu Ghép Đôi Tới Người Ấy</span>
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Đang kết nối API...</span>
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>Gửi Yêu Cầu Ghép Đôi Tới Người Ấy</span>
+              </>
+            )}
           </button>
         </form>
       )}
@@ -544,8 +726,8 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
             <div className="flex items-center -space-x-3 relative z-10">
               <div className="w-16 h-16 rounded-full overflow-hidden border-3 border-white ring-2 ring-rose-400 shadow-md">
                 <img
-                  src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80"
-                  alt="Alex"
+                  src={currentUser?.avatar || "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80"}
+                  alt={currentUser?.name || "Bạn"}
                   className="w-full h-full object-cover"
                 />
               </div>

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Screen, CoupleData, DatePlan, DateType, ConnectionStatusType } from './types';
+import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType, MemoryItem, PointHistoryItem } from './types';
 import { 
   INITIAL_COUPLE, 
   INITIAL_DATE_PLANS, 
   INITIAL_POINT_HISTORY, 
-  INITIAL_NOTIFICATIONS 
+  INITIAL_NOTIFICATIONS,
+  INITIAL_MEMORIES 
 } from './data/mockData';
 import { playSound } from './utils/audio';
 
@@ -16,9 +17,10 @@ import { OnboardingScreen } from './components/screens/OnboardingScreen';
 import { WelcomeScreen } from './components/screens/WelcomeScreen';
 import { LoginScreen } from './components/screens/LoginScreen';
 import { RegisterScreen } from './components/screens/RegisterScreen';
-import { PairingScreen } from './components/screens/PairingScreen';
+import { PairingScreen, PairingStage } from './components/screens/PairingScreen';
 import { HomeScreen } from './components/screens/HomeScreen';
-import { DatePlannerScreen } from './components/screens/DatePlannerScreen';
+import { SharedSpaceScreen } from './components/screens/SharedSpaceScreen';
+import { ChatbotScreen } from './components/screens/ChatbotScreen';
 import { GardenScreen } from './components/screens/GardenScreen';
 import { ProfileScreen } from './components/screens/ProfileScreen';
 
@@ -26,18 +28,199 @@ import { StatusModal } from './components/modals/StatusModal';
 import { LoveDayModal } from './components/modals/LoveDayModal';
 import { NotificationsModal } from './components/modals/NotificationsModal';
 
-import { Heart, Smartphone, Monitor } from 'lucide-react';
+import { AdminPortal } from './components/admin/AdminPortal';
+import { 
+  INITIAL_ADMIN_METRICS, 
+  INITIAL_ADMIN_USERS, 
+  INITIAL_ADMIN_LOGS 
+} from './data/mockAdminData';
+import { AdminUserAccount, AdminSystemMetric, AdminActivityLog } from './types';
+import { Heart, Smartphone, Monitor, Shield } from 'lucide-react';
+import { STORAGE_KEYS, loadStoredData, saveStoredData, broadcastMessage, subscribeToSync } from './utils/syncManager';
+import { getStoredToken } from './services/apiClient';
+import { authService } from './services/authService';
+import { coupleService } from './services/coupleService';
+import { memoryService } from './services/memoryService';
 
 export default function App() {
   // Main Screen Navigation State (First-time open -> Welcome Screen)
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
+  const [pairingInitialStage, setPairingInitialStage] = useState<PairingStage>('idle');
+  const [pairingBannerMessage, setPairingBannerMessage] = useState<string>('');
 
-  // Couple & Domain State
-  const [couple, setCouple] = useState<CoupleData>(INITIAL_COUPLE);
-  const [datePlans, setDatePlans] = useState<DatePlan[]>(INITIAL_DATE_PLANS);
+  // Couple & Domain State with persistent storage across tabs & reloads
+  const [couple, setCouple] = useState<CoupleData>(() =>
+    loadStoredData(STORAGE_KEYS.COUPLE, INITIAL_COUPLE)
+  );
+  const [datePlans, setDatePlans] = useState<DatePlan[]>(() =>
+    loadStoredData(STORAGE_KEYS.DATE_PLANS, INITIAL_DATE_PLANS)
+  );
   const [activePlan, setActivePlan] = useState<DatePlan | null>(INITIAL_DATE_PLANS[0]);
-  const [pointHistory, setPointHistory] = useState(INITIAL_POINT_HISTORY);
+  const [pointHistory, setPointHistory] = useState<PointHistoryItem[]>(() =>
+    loadStoredData(STORAGE_KEYS.POINT_HISTORY, INITIAL_POINT_HISTORY)
+  );
   const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS);
+  const [memories, setMemories] = useState<MemoryItem[]>(() =>
+    loadStoredData(STORAGE_KEYS.MEMORIES, INITIAL_MEMORIES)
+  );
+  const [adminUsers, setAdminUsers] = useState<AdminUserAccount[]>(() =>
+    loadStoredData(STORAGE_KEYS.ADMIN_USERS, INITIAL_ADMIN_USERS)
+  );
+  const [adminLogs, setAdminLogs] = useState<AdminActivityLog[]>(() =>
+    loadStoredData(STORAGE_KEYS.ADMIN_LOGS, INITIAL_ADMIN_LOGS)
+  );
+  const [adminMetrics, setAdminMetrics] = useState<AdminSystemMetric>(() =>
+    loadStoredData(STORAGE_KEYS.ADMIN_METRICS, INITIAL_ADMIN_METRICS)
+  );
+  const [previousScreen, setPreviousScreen] = useState<Screen>('welcome');
+
+  const navigateToAdmin = () => {
+    playSound('click');
+    setPreviousScreen(currentScreen === 'admin' ? (couple.isPaired ? 'home' : 'welcome') : currentScreen);
+    setCurrentScreen('admin');
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('mode', 'admin');
+      window.history.pushState({ screen: 'admin' }, '', url.toString());
+    } catch (err) {
+      console.warn('URL parsing error:', err);
+    }
+  };
+
+  const navigateToCoupleApp = () => {
+    playSound('click');
+    const target = couple.isPaired ? (previousScreen === 'admin' ? 'home' : previousScreen) : 'welcome';
+    setCurrentScreen(target);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('mode');
+      url.searchParams.delete('admin');
+      window.history.pushState({ screen: target }, '', url.pathname + (url.search ? url.search : ''));
+    } catch (err) {
+      console.warn('URL parsing error:', err);
+    }
+  };
+
+  // Auto detect ?mode=admin or ?admin=true and sync browser navigation
+  React.useEffect(() => {
+    const checkUrl = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('mode') === 'admin' || params.get('admin') === 'true') {
+          setCurrentScreen('admin');
+        } else {
+          setCurrentScreen(prev => (prev === 'admin' ? 'home' : prev));
+        }
+      } catch (err) {
+        console.warn('URL parsing error:', err);
+      }
+    };
+
+    checkUrl();
+    window.addEventListener('popstate', checkUrl);
+    return () => window.removeEventListener('popstate', checkUrl);
+  }, []);
+
+  // Auto load real user profile and couple status if JWT token exists
+  React.useEffect(() => {
+    const token = getStoredToken();
+    if (!token) return;
+
+    (async () => {
+      try {
+        const profile = await authService.getProfile();
+        if (profile?.displayName || profile?.email) {
+          const status = await coupleService.getStatus().catch(() => null);
+          setCouple(prev => ({
+            ...prev,
+            userA: {
+              ...prev.userA,
+              name: profile.displayName || prev.userA.name,
+              email: profile.email || prev.userA.email,
+              avatar: profile.avatarUrl || prev.userA.avatar,
+            },
+            isPaired: Boolean(status?.isPaired),
+          }));
+        }
+      } catch (err) {
+        console.warn('[App] Auto fetch real user profile failed:', err);
+      }
+    })();
+  }, []);
+
+  // Live Cross-Tab Synchronization with BroadcastChannel & localStorage
+  const stateRef = React.useRef({ memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory });
+  stateRef.current = { memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory };
+
+  React.useEffect(() => {
+    const unsubscribe = subscribeToSync((msg) => {
+      switch (msg.type) {
+        case 'SYNC_MEMORIES':
+          setMemories(msg.payload);
+          break;
+        case 'SYNC_COUPLE':
+          setCouple(msg.payload);
+          break;
+        case 'SYNC_ADMIN_USERS':
+          setAdminUsers(msg.payload);
+          break;
+        case 'SYNC_ADMIN_LOGS':
+          setAdminLogs(msg.payload);
+          break;
+        case 'SYNC_ADMIN_METRICS':
+          setAdminMetrics(msg.payload);
+          break;
+        case 'SYNC_DATE_PLANS':
+          setDatePlans(msg.payload);
+          break;
+        case 'SYNC_POINT_HISTORY':
+          setPointHistory(msg.payload);
+          break;
+        case 'REQUEST_SYNC':
+          broadcastMessage('SYNC_ALL', stateRef.current);
+          break;
+        case 'SYNC_ALL':
+          if (msg.payload) {
+            if (msg.payload.memories) setMemories(msg.payload.memories);
+            if (msg.payload.couple) setCouple(msg.payload.couple);
+            if (msg.payload.adminUsers) setAdminUsers(msg.payload.adminUsers);
+            if (msg.payload.adminLogs) setAdminLogs(msg.payload.adminLogs);
+            if (msg.payload.adminMetrics) setAdminMetrics(msg.payload.adminMetrics);
+            if (msg.payload.datePlans) setDatePlans(msg.payload.datePlans);
+            if (msg.payload.pointHistory) setPointHistory(msg.payload.pointHistory);
+          }
+          break;
+      }
+    });
+
+    // Request sync from any already-open tab on mount
+    broadcastMessage('REQUEST_SYNC', null);
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const handleManualSync = () => {
+    playSound('chime');
+    const freshMemories = loadStoredData(STORAGE_KEYS.MEMORIES, INITIAL_MEMORIES);
+    const freshCouple = loadStoredData(STORAGE_KEYS.COUPLE, INITIAL_COUPLE);
+    const freshUsers = loadStoredData(STORAGE_KEYS.ADMIN_USERS, INITIAL_ADMIN_USERS);
+    const freshLogs = loadStoredData(STORAGE_KEYS.ADMIN_LOGS, INITIAL_ADMIN_LOGS);
+    const freshMetrics = loadStoredData(STORAGE_KEYS.ADMIN_METRICS, INITIAL_ADMIN_METRICS);
+    const freshPlans = loadStoredData(STORAGE_KEYS.DATE_PLANS, INITIAL_DATE_PLANS);
+    const freshPoints = loadStoredData(STORAGE_KEYS.POINT_HISTORY, INITIAL_POINT_HISTORY);
+
+    setMemories(freshMemories);
+    setCouple(freshCouple);
+    setAdminUsers(freshUsers);
+    setAdminLogs(freshLogs);
+    setAdminMetrics(freshMetrics);
+    setDatePlans(freshPlans);
+    setPointHistory(freshPoints);
+
+    broadcastMessage('REQUEST_SYNC', null);
+  };
 
   // Modals & UI States
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
@@ -46,7 +229,8 @@ export default function App() {
 
   // Interaction feedback states
   const [isWatering, setIsWatering] = useState(false);
-  const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
+  const [isFertilizing, setIsFertilizing] = useState(false);
+  const [isSunbathing, setIsSunbathing] = useState(false);
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [deviceFrame, setDeviceFrame] = useState(true);
 
@@ -66,21 +250,75 @@ export default function App() {
   // -----------------------------------------------------------------
   // POINTS & GAMIFICATION HANDLERS
   // -----------------------------------------------------------------
-  const addPoints = (amount: number, actionName: string, byUser = couple.userA.name) => {
-    setCouple(prev => ({
-      ...prev,
-      lovePoints: prev.lovePoints + amount
-    }));
+  const addPoints = (amount: number, actionName: string, byUser = couple.userA.name, category?: PointHistoryItem['category']) => {
+    setCouple(prev => {
+      const next = { ...prev, lovePoints: prev.lovePoints + amount };
+      saveStoredData(STORAGE_KEYS.COUPLE, next);
+      broadcastMessage('SYNC_COUPLE', next);
+      return next;
+    });
 
-    const newHistoryItem = {
-      id: `pt_${Date.now()}`,
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const formattedTime = 'Hôm nay, ' + hours + ':' + minutes;
+
+    const newHistoryItem: PointHistoryItem = {
+      id: `pt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       action: actionName,
       points: amount,
-      timestamp: 'Vừa xong',
-      by: byUser
+      timestamp: formattedTime,
+      by: byUser,
+      category
     };
 
-    setPointHistory(prev => [newHistoryItem, ...prev]);
+    setPointHistory(prev => {
+      const next = [newHistoryItem, ...prev];
+      saveStoredData(STORAGE_KEYS.POINT_HISTORY, next);
+      broadcastMessage('SYNC_POINT_HISTORY', next);
+      return next;
+    });
+
+    // Live bidirectional sync to Admin Portal metrics and accounts
+    setAdminUsers(prev => {
+      const next = prev.map(u => {
+        if (u.id === 'usr_alex' || u.id === 'usr_sam') {
+          const newPts = (u.lovePoints || 0) + amount;
+          const newStage = (newPts >= 1000 ? 5 : newPts >= 500 ? 4 : newPts >= 300 ? 3 : newPts >= 100 ? 2 : 1) as any;
+          return { ...u, lovePoints: newPts, gardenStage: newStage };
+        }
+        return u;
+      });
+      saveStoredData(STORAGE_KEYS.ADMIN_USERS, next);
+      broadcastMessage('SYNC_ADMIN_USERS', next);
+      return next;
+    });
+
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalLovePoints: prev.totalLovePoints + amount };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+
+    setAdminLogs(prev => {
+      const next = [
+        {
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          action: `${byUser} đã thực hiện: ${actionName} (+${amount} pts)`,
+          actor: byUser,
+          target: 'Love Garden',
+          timestamp: 'Vừa xong',
+          type: 'garden' as const,
+          status: 'success' as const,
+          ip: '127.0.0.1'
+        },
+        ...prev
+      ];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
   };
 
   // -----------------------------------------------------------------
@@ -110,16 +348,166 @@ export default function App() {
     }, 900);
   };
 
-  const handleDailyCheckIn = () => {
-    if (hasCheckedInToday) return;
+  const handleFertilizeGarden = (e?: React.MouseEvent) => {
+    playSound('click');
+    setIsFertilizing(true);
+    triggerHeartBurst(e);
+
+    setTimeout(() => {
+      setIsFertilizing(false);
+      playSound('success');
+      addPoints(10, 'Bón phân hữu cơ & vun xới đất', couple.userA.name, 'fertilize');
+
+      setNotifications(prev => [
+        {
+          id: `notif_${Date.now()}`,
+          title: 'Đất vườn đã được bón phân',
+          message: `🌿 ${couple.userA.name} vừa bón dưỡng chất cho đất (+10 Love Points)!`,
+          time: 'Vừa xong',
+          type: 'garden',
+          read: false
+        },
+        ...prev
+      ]);
+    }, 900);
+  };
+
+  const handleSunGarden = (e?: React.MouseEvent) => {
+    playSound('chime');
+    setIsSunbathing(true);
+    triggerHeartBurst(e);
+
+    setTimeout(() => {
+      setIsSunbathing(false);
+      playSound('success');
+      addPoints(5, 'Tắm nắng ấm ban mai cho mầm hoa', couple.userA.name, 'sun');
+
+      setNotifications(prev => [
+        {
+          id: `notif_${Date.now()}`,
+          title: 'Mầm hoa đã đón ánh nắng',
+          message: `☀️ Cây tình yêu quang hợp tươi tốt dưới nắng ấm (+5 Love Points)!`,
+          time: 'Vừa xong',
+          type: 'garden',
+          read: false
+        },
+        ...prev
+      ]);
+    }, 900);
+  };
+
+  // -----------------------------------------------------------------
+  // SHARED SPACE / MEMORIES HANDLERS (F06)
+  // -----------------------------------------------------------------
+  const handleAddMemory = (newMemory: Omit<MemoryItem, 'id' | 'createdAt' | 'likes' | 'isLiked'>) => {
+    const created: MemoryItem = {
+      ...newMemory,
+      id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      likes: 1,
+      isLiked: true,
+      createdAt: 'Vừa xong',
+    };
+
+    setMemories(prev => {
+      const next = [created, ...prev];
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
+
+    // Also call Real Backend API if authenticated
+    if (getStoredToken()) {
+      memoryService.createMemory(newMemory.caption).catch(err => {
+        console.warn('[App] Real API createMemory background sync error:', err);
+      });
+    }
+
+    addPoints(10, `Lưu ảnh kỷ niệm: ${newMemory.caption.slice(0, 20)}...`, newMemory.authorName);
     playSound('success');
-    setHasCheckedInToday(true);
-    addPoints(5, 'Check-in vườn hoa mỗi ngày', couple.userA.name);
+    triggerHeartBurst();
+
+    // Sync to Admin Portal
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalMemories: prev.totalMemories + 1 };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `${newMemory.authorName} vừa đăng ảnh kỷ niệm mới: "${newMemory.caption.slice(0, 25)}..."`,
+      actor: newMemory.authorName,
+      target: 'Shared Space',
+      timestamp: 'Vừa xong',
+      type: 'content',
+      status: 'success',
+      ip: '127.0.0.1'
+    };
+
+    setAdminLogs(prev => {
+      const next = [newLog, ...prev];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
+
+    setNotifications(prev => [
+      {
+        id: `notif_${Date.now()}`,
+        title: 'Kỷ niệm mới trong Không Gian Chung ✨',
+        message: `${newMemory.authorName} vừa lưu một bức ảnh mới: "${newMemory.caption.slice(0, 30)}..."`,
+        time: 'Vừa xong',
+        type: 'memory',
+        read: false,
+      },
+      ...prev
+    ]);
+  };
+
+  const handleEditMemory = (id: string, updated: Partial<MemoryItem>) => {
+    setMemories(prev => {
+      const next = prev.map(m => m.id === id ? { ...m, ...updated } : m);
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
+    playSound('click');
+  };
+
+  const handleDeleteMemory = (id: string) => {
+    setMemories(prev => {
+      const next = prev.filter(m => m.id !== id);
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
+    playSound('click');
+  };
+
+  const handleLikeMemory = (id: string) => {
+    setMemories(prev => {
+      const next = prev.map(m => {
+        if (m.id === id) {
+          const nextLiked = !m.isLiked;
+          return {
+            ...m,
+            isLiked: nextLiked,
+            likes: nextLiked ? m.likes + 1 : Math.max(0, m.likes - 1)
+          };
+        }
+        return m;
+      });
+      saveStoredData(STORAGE_KEYS.MEMORIES, next);
+      broadcastMessage('SYNC_MEMORIES', next);
+      return next;
+    });
+    playSound('ping');
   };
 
   const handleSaveMemory = () => {
-    playSound('success');
-    addPoints(10, 'Lưu kỷ niệm tình yêu mới', couple.userA.name);
+    playSound('click');
+    setCurrentScreen('shared');
   };
 
   // -----------------------------------------------------------------
@@ -190,6 +578,11 @@ export default function App() {
 
       setActivePlan(newPlan);
       setDatePlans(prev => [newPlan, ...prev]);
+      setAdminMetrics(prev => ({
+        ...prev,
+        totalDatePlans: prev.totalDatePlans + 1,
+        aiQueriesToday: prev.aiQueriesToday + 1
+      }));
       addPoints(5, 'Tạo kế hoạch hẹn hò với AI', couple.userA.name);
     }, 1100);
   };
@@ -207,13 +600,13 @@ export default function App() {
   // -----------------------------------------------------------------
   // CONNECTION STATUS & LOVE DAY UPDATES
   // -----------------------------------------------------------------
-  const handleSaveStatus = (status: ConnectionStatusType, availableAt: string) => {
+  const handleSaveStatus = (status: ConnectionStatusType, activity?: ConnectionActivityType) => {
     setCouple(prev => ({
       ...prev,
       userA: {
         ...prev.userA,
         status,
-        availableAt: availableAt ? `Rảnh lúc ${availableAt}` : 'Ngay bây giờ'
+        activity
       }
     }));
     setIsStatusModalOpen(false);
@@ -233,14 +626,94 @@ export default function App() {
       userA: { ...prev.userA, name: nameA },
       userB: { ...prev.userB, name: nameB }
     }));
+    if (getStoredToken()) {
+      authService.updateProfile({ displayName: nameA }).catch(err => {
+        console.warn('[App] Real updateProfile error:', err);
+      });
+    }
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === 'usr_alex') return { ...u, name: nameA };
+      if (u.id === 'usr_sam') return { ...u, name: nameB };
+      return u;
+    }));
+    setAdminLogs(prev => [
+      {
+        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        action: `Cập nhật biệt danh cặp đôi: "${nameA}" & "${nameB}"`,
+        actor: nameA,
+        target: 'Profile',
+        timestamp: 'Vừa xong',
+        type: 'auth',
+        status: 'success',
+        ip: '127.0.0.1'
+      },
+      ...prev
+    ]);
+  };
+
+  const handleUpdateUserAvatar = (newAvatarUrl: string) => {
+    try {
+      localStorage.setItem('lovera_alex_avatar', newAvatarUrl);
+    } catch (err) {
+      console.warn('Failed to save avatar to localStorage:', err);
+    }
+    setCouple(prev => ({
+      ...prev,
+      userA: { ...prev.userA, avatar: newAvatarUrl }
+    }));
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === 'usr_alex') return { ...u, avatar: newAvatarUrl };
+      return u;
+    }));
   };
 
   const handleUnpair = () => {
     playSound('error');
+    // Generate fresh clean 6-character code
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let freshCode = 'LV';
+    for (let i = 0; i < 4; i++) {
+      freshCode += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    // Reset couple state cleanly: User A stays logged in, partner B and shared data reset
     setCouple(prev => ({
       ...prev,
-      isPaired: false
+      coupleId: `CP-${freshCode}`,
+      pairCode: freshCode,
+      startDate: todayStr,
+      isPaired: false,
+      lovePoints: 0,
+      userB: {
+        id: '',
+        name: 'Chưa kết nối',
+        avatar: INITIAL_COUPLE.userB.avatar,
+        email: '',
+        status: 'Away',
+        isOnline: false,
+        batteryLevel: 0
+      }
     }));
+
+    // Reset interaction / checkin states
+
+    // Add unpair notification
+    setNotifications(prev => [
+      {
+        id: `notif_${Date.now()}`,
+        title: 'Đã hủy kết nối cặp đôi',
+        message: 'Bạn đã hủy liên kết với người thương cũ. Mã ghép đôi mới đã sẵn sàng để gửi cho đối phương.',
+        time: 'Vừa xong',
+        type: 'status',
+        read: false
+      },
+      ...prev
+    ]);
+
+    // Direct transition to Pairing Screen at 'create' (màn hình gửi mã) stage
+    setPairingInitialStage('create');
+    setPairingBannerMessage('Đã hủy kết nối cặp đôi thành công. Mã ghép đôi mới đã sẵn sàng để gửi cho người ấy!');
     setCurrentScreen('pairing');
   };
 
@@ -251,7 +724,131 @@ export default function App() {
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const isTabScreen = ['home', 'planner', 'garden', 'profile'].includes(currentScreen);
+  const isTabScreen = couple.isPaired 
+    ? ['home', 'shared', 'chat', 'planner', 'garden', 'profile'].includes(currentScreen)
+    : ['pairing', 'profile'].includes(currentScreen);
+  const handleToggleLockUser = (userId: string) => {
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === userId) {
+        const updated = !u.isLocked;
+        const newLog: AdminActivityLog = {
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          action: updated ? `Khóa tài khoản ${u.name}` : `Mở khóa tài khoản ${u.name}`,
+          actor: 'admin@lovera.app',
+          target: u.email,
+          timestamp: 'Vừa xong',
+          type: 'auth',
+          status: updated ? 'warning' : 'success',
+          ip: '127.0.0.1'
+        };
+        setAdminLogs(l => [newLog, ...l]);
+        return { ...u, isLocked: updated };
+      }
+      return u;
+    }));
+  };
+
+  const handleAdjustPoints = (userId: string, newPoints: number) => {
+    setAdminUsers(prev => prev.map(u => {
+      if (u.id === userId) {
+        return { ...u, lovePoints: newPoints };
+      }
+      return u;
+    }));
+    if (userId === 'usr_alex' || userId === 'usr_sam') {
+      setCouple(prev => ({
+        ...prev,
+        lovePoints: newPoints
+      }));
+    }
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `Điều chỉnh Love Points thành ${newPoints} pts`,
+      actor: 'admin@lovera.app',
+      target: `User ID: ${userId}`,
+      timestamp: 'Vừa xong',
+      type: 'garden',
+      status: 'success',
+      ip: '127.0.0.1'
+    };
+    setAdminLogs(l => [newLog, ...l]);
+  };
+
+  const handleDeleteAdminMemory = (memoryId: string) => {
+    handleDeleteMemory(memoryId);
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalMemories: Math.max(0, prev.totalMemories - 1) };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `Gỡ bỏ bài viết kỷ niệm ID: ${memoryId}`,
+      actor: 'admin@lovera.app',
+      target: 'Shared Space',
+      timestamp: 'Vừa xong',
+      type: 'content',
+      status: 'warning',
+      ip: '127.0.0.1'
+    };
+    setAdminLogs(l => {
+      const next = [newLog, ...l];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
+  };
+
+  const handleDeleteAdminDatePlan = (planId: string) => {
+    setDatePlans(prev => {
+      const next = prev.filter(p => p.id !== planId);
+      saveStoredData(STORAGE_KEYS.DATE_PLANS, next);
+      broadcastMessage('SYNC_DATE_PLANS', next);
+      return next;
+    });
+    setAdminMetrics(prev => {
+      const next = { ...prev, totalDatePlans: Math.max(0, prev.totalDatePlans - 1) };
+      saveStoredData(STORAGE_KEYS.ADMIN_METRICS, next);
+      broadcastMessage('SYNC_ADMIN_METRICS', next);
+      return next;
+    });
+    const newLog: AdminActivityLog = {
+      id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      action: `Xóa kế hoạch hẹn hò ID: ${planId}`,
+      actor: 'admin@lovera.app',
+      target: 'Date Plans',
+      timestamp: 'Vừa xong',
+      type: 'content',
+      status: 'warning',
+      ip: '127.0.0.1'
+    };
+    setAdminLogs(l => {
+      const next = [newLog, ...l];
+      saveStoredData(STORAGE_KEYS.ADMIN_LOGS, next);
+      broadcastMessage('SYNC_ADMIN_LOGS', next);
+      return next;
+    });
+  };
+
+  if (currentScreen === 'admin') {
+    return (
+      <AdminPortal
+        metrics={adminMetrics}
+        users={adminUsers}
+        logs={adminLogs}
+        memories={memories}
+        datePlans={datePlans}
+        onToggleLockUser={handleToggleLockUser}
+        onAdjustPoints={handleAdjustPoints}
+        onDeleteMemory={handleDeleteAdminMemory}
+        onDeleteDatePlan={handleDeleteAdminDatePlan}
+        onBackToCoupleApp={navigateToCoupleApp}
+        onManualSync={handleManualSync}
+      />
+    );
+  }
+
   const isHomeScreen = currentScreen === 'home';
 
   return (
@@ -264,6 +861,14 @@ export default function App() {
           <span>LOVERA Couple App (MVP 2026)</span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={navigateToAdmin}
+            className="px-2.5 py-1 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white rounded-md text-[11px] font-bold flex items-center gap-1 shadow-xs transition-all active:scale-95 cursor-pointer"
+            title="Mở Trang Quản Trị Hệ Thống (Web Admin)"
+          >
+            <Shield className="w-3 h-3" />
+            <span>Web Admin</span>
+          </button>
           <button
             onClick={() => setDeviceFrame(!deviceFrame)}
             className="px-2 py-1 bg-white hover:bg-stone-200 text-stone-700 rounded-md border border-stone-200 text-[11px] flex items-center gap-1 transition-colors"
@@ -296,8 +901,8 @@ export default function App() {
           </div>
         )}
 
-        {/* Top Sticky Header (for Tab Screens) */}
-        {isTabScreen && (
+        {/* Top Sticky Header (for Tab Screens when paired) */}
+        {isTabScreen && couple.isPaired && (
           <Header
             currentUser={couple.userA}
             unreadNotifications={unreadCount}
@@ -305,6 +910,7 @@ export default function App() {
               playSound('click');
               setIsNotificationsModalOpen(true);
             }}
+            onOpenAdmin={navigateToAdmin}
             onOpenSettings={() => {
               playSound('click');
               setCurrentScreen('profile');
@@ -326,6 +932,7 @@ export default function App() {
                 playSound('click');
                 setCurrentScreen('register');
               }}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
@@ -338,6 +945,8 @@ export default function App() {
                   userA: { ...prev.userA, email, name },
                   isPaired: false,
                 }));
+                setPairingInitialStage('idle');
+                setPairingBannerMessage('');
                 setCurrentScreen('pairing');
               }}
               onNavigateToLogin={() => {
@@ -348,6 +957,7 @@ export default function App() {
                 playSound('click');
                 setCurrentScreen('welcome');
               }}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
@@ -363,6 +973,8 @@ export default function App() {
                 if (isAlreadyPaired) {
                   setCurrentScreen('home');
                 } else {
+                  setPairingInitialStage('idle');
+                  setPairingBannerMessage('');
                   setCurrentScreen('pairing');
                 }
               }}
@@ -374,6 +986,7 @@ export default function App() {
                 playSound('click');
                 setCurrentScreen('welcome');
               }}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
@@ -389,25 +1002,62 @@ export default function App() {
                 if (isAlreadyPaired) {
                   setCurrentScreen('home');
                 } else {
+                  setPairingInitialStage('idle');
+                  setPairingBannerMessage('');
                   setCurrentScreen('pairing');
                 }
               }}
               onNavigateToRegister={() => setCurrentScreen('register')}
               onBackToWelcome={() => setCurrentScreen('welcome')}
+              onNavigateToAdmin={navigateToAdmin}
             />
           )}
 
           {/* Couple Pairing Screen (5 bước: Chưa kết nối, Tạo mã 6 ký tự, Nhập mã, Chờ xác nhận, Ghép đôi thành công) */}
           {currentScreen === 'pairing' && (
             <PairingScreen
+              key={`pairing_${couple.pairCode}_${pairingInitialStage}`}
               myPairCode={couple.pairCode}
-              onBackToAuth={() => setCurrentScreen('welcome')}
-              onPairSuccess={(partnerName) => {
+              initialStage={pairingInitialStage}
+              currentUser={couple.userA}
+              bannerMessage={pairingBannerMessage}
+              onOpenProfile={() => setCurrentScreen('profile')}
+              onNavigateToAdmin={navigateToAdmin}
+              onBackToAuth={() => {
+                setPairingBannerMessage('');
+                setCurrentScreen('welcome');
+              }}
+              onPairSuccess={(partnerInfo) => {
+                const partnerName = typeof partnerInfo === 'string' ? partnerInfo : partnerInfo.name;
+                const partnerEmail = typeof partnerInfo === 'string' ? 'sam@lovera.app' : (partnerInfo.email || 'sam@lovera.app');
+                const partnerAvatar = typeof partnerInfo === 'string' ? INITIAL_COUPLE.userB.avatar : (partnerInfo.avatar || INITIAL_COUPLE.userB.avatar);
                 setCouple(prev => ({
                   ...prev,
                   isPaired: true,
-                  userB: { ...prev.userB, name: partnerName }
+                  startDate: new Date().toISOString().split('T')[0],
+                  lovePoints: 100,
+                  userB: {
+                    ...prev.userB,
+                    id: 'usr_partner',
+                    name: partnerName,
+                    email: partnerEmail,
+                    avatar: partnerAvatar,
+                    status: 'Available',
+                    isOnline: true,
+                  }
                 }));
+                setPairingBannerMessage('');
+                setNotifications(prev => [
+                  {
+                    id: `notif_${Date.now()}`,
+                    title: 'Ghép đôi thành công!',
+                    message: `Bạn và ${partnerName} đã chính thức kết nối không gian yêu thương.`,
+                    time: 'Vừa xong',
+                    type: 'status',
+                    read: false
+                  },
+                  ...prev
+                ]);
                 setCurrentScreen('home');
               }}
             />
@@ -427,6 +1077,8 @@ export default function App() {
           {currentScreen === 'home' && (
             <HomeScreen
               couple={couple}
+              recentMemories={memories}
+              onUpdateAvatar={handleUpdateUserAvatar}
               onOpenStatusModal={() => {
                 playSound('click');
                 setIsStatusModalOpen(true);
@@ -435,39 +1087,87 @@ export default function App() {
                 playSound('click');
                 setIsLoveDayModalOpen(true);
               }}
+              onNavigateToPairing={() => {
+                setPairingInitialStage('create');
+                setCurrentScreen('pairing');
+              }}
+              onNavigateToProfile={() => {
+                setCurrentScreen('profile');
+              }}
+              onNavigateToShared={() => {
+                setCurrentScreen('shared');
+              }}
             />
           )}
 
-          {currentScreen === 'planner' && (
-            <DatePlannerScreen
-              currentPlan={activePlan}
-              onSavePlan={handleSavePlan}
-              onCompletePlan={handleCompletePlan}
-              onGeneratePlan={handleGenerateDatePlan}
-              isGenerating={isGeneratingPlan}
+          {currentScreen === 'shared' && (
+            <SharedSpaceScreen
+              couple={couple}
+              memories={memories}
+              onAddMemory={handleAddMemory}
+              onEditMemory={handleEditMemory}
+              onDeleteMemory={handleDeleteMemory}
+              onLikeMemory={handleLikeMemory}
+              onNavigateToHome={() => setCurrentScreen('home')}
+
+            />
+          )}
+
+          {(currentScreen === 'chat' || currentScreen === 'planner') && (
+            <ChatbotScreen
+              couple={couple}
+              onEarnPoints={(amount, reason) => {
+                addPoints(amount, reason, couple.userA.name);
+              }}
             />
           )}
 
           {currentScreen === 'garden' && (
             <GardenScreen
+              couple={couple}
               lovePoints={couple.lovePoints}
               history={pointHistory}
               onWater={handleWaterGarden}
-              onDailyCheckIn={handleDailyCheckIn}
+              onFertilize={handleFertilizeGarden}
+              onSunbath={handleSunGarden}
               onSaveMemory={handleSaveMemory}
               isWatering={isWatering}
-              hasCheckedInToday={hasCheckedInToday}
+              isFertilizing={isFertilizing}
+              isSunbathing={isSunbathing}
             />
           )}
 
           {currentScreen === 'profile' && (
             <ProfileScreen
               couple={couple}
+              onUpdateAvatar={handleUpdateUserAvatar}
               onUpdateNicknames={handleUpdateNicknames}
               onOpenLoveDayModal={() => setIsLoveDayModalOpen(true)}
               onUnpair={handleUnpair}
               onLogout={handleLogout}
-              onResetDemoFlow={(scr) => setCurrentScreen(scr)}
+              onResetDemoFlow={(scr) => {
+                if (scr === 'pairing') {
+                  setPairingInitialStage('idle');
+                  setPairingBannerMessage('');
+                }
+                setCurrentScreen(scr);
+              }}
+              onNavigateToPairing={() => {
+                setPairingInitialStage('create');
+                setCurrentScreen('pairing');
+              }}
+              onNavigateToAdmin={navigateToAdmin}
+              onUpdateUserName={(newName) => {
+                setCouple(prev => ({
+                  ...prev,
+                  userA: { ...prev.userA, name: newName }
+                }));
+                if (getStoredToken()) {
+                  authService.updateProfile({ displayName: newName }).catch(err => {
+                    console.warn('[App] Real updateProfile error:', err);
+                  });
+                }
+              }}
             />
           )}
         </div>
@@ -477,11 +1177,12 @@ export default function App() {
           <BottomNav
             currentScreen={currentScreen}
             isHome={currentScreen === 'home'}
+            isPaired={couple.isPaired}
             onNavigate={(scr) => {
               playSound('click');
               setCurrentScreen(scr);
             }}
-            gardenNotification={!hasCheckedInToday}
+            gardenNotification={false}
           />
         )}
 
@@ -496,7 +1197,7 @@ export default function App() {
         {isStatusModalOpen && (
           <StatusModal
             currentStatus={couple.userA.status}
-            currentAvailableAt={couple.userA.availableAt}
+            currentActivity={couple.userA.activity}
             onClose={() => setIsStatusModalOpen(false)}
             onSave={handleSaveStatus}
           />
@@ -539,6 +1240,20 @@ export default function App() {
         ))}
 
       </main>
+
+      {/* Floating Web Admin Quick-Access Pill (Always accessible from any App screen) */}
+      <aside aria-label="Lối tắt Web Admin" className="fixed bottom-20 right-4 sm:bottom-6 sm:right-6 z-50">
+        <button
+          type="button"
+          onClick={navigateToAdmin}
+          className="group flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-rose-600 hover:from-purple-700 hover:to-rose-700 text-white rounded-full shadow-xl shadow-purple-500/40 border border-white/50 text-xs font-extrabold transition-all active:scale-95 cursor-pointer hover:scale-105"
+          title="Mở Bảng Điều Khiển Quản Trị Hệ Thống (Web Admin)"
+        >
+          <Shield className="w-4 h-4 text-purple-200 group-hover:rotate-12 transition-transform" />
+          <span>🛡️ Web Admin</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+        </button>
+      </aside>
 
     </div>
   );
