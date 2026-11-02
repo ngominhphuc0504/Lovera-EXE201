@@ -3,6 +3,7 @@ WORKDIR /src
 COPY . .
 RUN dotnet restore src/Lovera.Api/Lovera.Api.csproj && dotnet publish src/Lovera.Api/Lovera.Api.csproj -c Release -o /out --no-restore
 FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
+RUN apk add --no-cache tzdata
 WORKDIR /app
 COPY --from=build /out .
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080
