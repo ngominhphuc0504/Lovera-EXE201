@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, Heart, Sun, Sunrise, Moon, Shield } from 'lucide-react';
+import { Bell, Heart, Sun, Sunrise, Moon } from 'lucide-react';
 import { Partner } from '../../types';
 
 interface HeaderProps {
@@ -7,14 +7,12 @@ interface HeaderProps {
   unreadNotifications: number;
   onOpenNotifications: () => void;
   onOpenSettings?: () => void;
-  onOpenAdmin?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
   unreadNotifications,
   onOpenNotifications,
-  onOpenAdmin,
 }) => {
   // Determine greeting & icon by time of day
   const hour = new Date().getHours();
@@ -55,19 +53,6 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Action Buttons with Standard Hit Targets (min 44x44px) */}
       <div className="flex items-center gap-1.5">
-        {/* Web Admin Shortcut Button */}
-        {onOpenAdmin && (
-          <button
-            type="button"
-            onClick={onOpenAdmin}
-            className="px-2.5 py-1.5 bg-gradient-to-r from-purple-50 via-pink-50 to-rose-50 hover:from-purple-100 hover:to-rose-100 text-purple-700 border border-purple-200/90 rounded-full text-xs font-bold flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
-            title="Mở Trang Quản Trị Hệ Thống (Web Admin)"
-          >
-            <Shield className="w-3.5 h-3.5 text-purple-600" />
-            <span>Admin</span>
-          </button>
-        )}
-
         {/* Notifications Icon Button */}
         <button
           type="button"

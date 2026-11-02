@@ -17,7 +17,8 @@ import {
   AlertTriangle,
   ArrowRight,
   User,
-  Loader2
+  Loader2,
+  Clipboard
 } from 'lucide-react';
 import { playSound } from '../../utils/audio';
 import { Partner } from '../../types';
@@ -25,7 +26,7 @@ import { coupleService } from '../../services/coupleService';
 
 export type PairingStage = 
   | 'idle'                // 1. Chưa kết nối: Chọn Tạo mã hoặc Nhập mã
-  | 'create'              // 2. Tạo mã (User A hiển thị mã 6 ký tự)
+  | 'create'              // 2. Tạo mã (User A hiển thị mã)
   | 'join'                // 3. Nhập mã (User B nhập mã & gửi yêu cầu)
   | 'waiting_partner'     // 4a. Chờ xác nhận (User B chờ User A xác nhận)
   | 'confirm_request'     // 4b. Nhận yêu cầu (User A nhận yêu cầu và xác nhận)
@@ -39,7 +40,6 @@ interface PairingScreenProps {
   onPairSuccess: (partner: { name: string; email: string; avatar: string } | string) => void;
   onBackToAuth?: () => void;
   onOpenProfile?: () => void;
-  onNavigateToAdmin?: () => void;
 }
 
 export const PairingScreen: React.FC<PairingScreenProps> = ({
@@ -50,11 +50,10 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   onPairSuccess,
   onBackToAuth,
   onOpenProfile,
-  onNavigateToAdmin,
 }) => {
-  // Generate 6-char clean code if needed
-  const default6Char = (myPairCode.replace(/[^A-Z0-9]/gi, '').slice(0, 6) || 'LV8942').toUpperCase();
-  const [currentCode, setCurrentCode] = useState<string>(default6Char);
+  // Format clean code without slicing
+  const cleanCode = (c?: string) => (c ? c.replace(/[^A-Za-z0-9]/gi, '').toUpperCase() : '');
+  const [currentCode, setCurrentCode] = useState<string>(() => cleanCode(myPairCode) || '11672B94767A');
   const [stage, setStage] = useState<PairingStage>(initialStage);
   const [inputCode, setInputCode] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
@@ -74,8 +73,8 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   // Sync currentCode if myPairCode changes
   useEffect(() => {
     if (myPairCode) {
-      const clean = (myPairCode.replace(/[^A-Z0-9]/gi, '').slice(0, 6) || 'LV8942').toUpperCase();
-      setCurrentCode(clean);
+      const clean = cleanCode(myPairCode);
+      if (clean) setCurrentCode(clean);
     }
   }, [myPairCode]);
 
@@ -112,10 +111,10 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
       setIsGeneratingCode(false);
     }
 
-    // Fallback if not authenticated or offline
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let newCode = 'LV';
-    for (let i = 0; i < 4; i++) {
+    // Fallback if not authenticated or offline (12-char hex matching backend)
+    const chars = '0123456789ABCDEF';
+    let newCode = '';
+    for (let i = 0; i < 12; i++) {
       newCode += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     setCurrentCode(newCode);
@@ -154,6 +153,17 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   };
 
   const handleShareCode = () => {
+    const shareText = `Mã kết nối Lovera của mình là: ${currentCode}. Hãy mở ứng dụng Lovera và nhập mã này để cùng nhau ghép đôi nhé! 💕`;
+    if (navigator.share) {
+      navigator.share({
+        title: 'Mã Ghép Đôi Lovera',
+        text: shareText,
+      }).catch(() => {
+        navigator.clipboard?.writeText(currentCode);
+      });
+    } else {
+      navigator.clipboard?.writeText(currentCode);
+    }
     setShared(true);
     playSound('chime');
     setTimeout(() => setShared(false), 2200);
@@ -164,10 +174,16 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
     e.preventDefault();
     setError('');
 
-    const formatted = inputCode.trim().toUpperCase();
+    const formatted = inputCode.replace(/[^A-Za-z0-9]/g, '').trim().toUpperCase();
 
     if (!formatted) {
-      setError('Vui lòng nhập mã kết nối.');
+      setError('Vui lòng nhập mã ghép đôi.');
+      playSound('error');
+      return;
+    }
+
+    if (formatted.length !== 12 && formatted.length !== 6) {
+      setError(`Mã ghép đôi yêu cầu đủ 12 ký tự (hoặc 6 ký tự). Bạn mới nhập ${formatted.length} ký tự.`);
       playSound('error');
       return;
     }
@@ -248,20 +264,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
-          {onNavigateToAdmin && (
-            <button
-              type="button"
-              onClick={() => {
-                playSound('click');
-                onNavigateToAdmin();
-              }}
-              className="px-2 py-1.5 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-[10px] font-bold flex items-center gap-1 shadow-2xs transition-all active:scale-95 cursor-pointer"
-              title="Chuyển sang Web Admin"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-              <span>Admin</span>
-            </button>
-          )}
+          
           {onOpenProfile ? (
             <button
               type="button"
@@ -372,7 +375,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
                   Tôi là người tạo mã kết nối (User A)
                 </h3>
                 <p className="text-[11px] text-stone-400 mt-0.5">
-                  Tạo mã 6 ký tự để gửi cho người ấy
+                  Tạo mã ghép đôi để gửi cho người ấy
                 </p>
               </div>
               <ArrowRight className="w-4 h-4 text-stone-300 group-hover:text-rose-500 group-hover:translate-x-0.5 transition-all" />
@@ -394,7 +397,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
                   Người ấy đã gửi mã cho tôi (User B)
                 </h3>
                 <p className="text-[11px] text-stone-400 mt-0.5">
-                  Nhập mã 6 ký tự để gửi yêu cầu ghép đôi
+                  Nhập mã ghép đôi để gửi yêu cầu kết nối
                 </p>
               </div>
               <ArrowRight className="w-4 h-4 text-stone-300 group-hover:text-purple-500 group-hover:translate-x-0.5 transition-all" />
@@ -421,43 +424,73 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
               Mã Ghép Đôi Của Bạn
             </h2>
             <p className="text-xs text-stone-500 max-w-xs mx-auto">
-              Gửi mã 6 ký tự này cho người ấy để bắt đầu ghép đôi.
+              Gửi mã này cho người ấy để bắt đầu kết nối không gian yêu.
             </p>
           </div>
 
-          {/* 6-Character Code Display Card */}
-          <div className="bg-white rounded-3xl p-6 border border-rose-200/90 shadow-sm text-center space-y-3">
-            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-widest block">
-              Mã bảo mật 6 ký tự
-            </span>
-
-            {/* Prominent Monospace Characters (Exact 6 Characters) */}
-            <div className="flex items-center justify-center gap-2 py-1">
-              {(currentCode.slice(0, 6) || 'LV8942').split('').map((char, index) => (
-                <div
-                  key={index}
-                  className="w-11 h-14 rounded-2xl bg-rose-50/90 border-2 border-rose-300 flex items-center justify-center font-mono font-black text-2xl text-rose-600 shadow-2xs"
-                >
-                  {char}
-                </div>
-              ))}
+          {/* Pairing Code Display Card */}
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-rose-200/90 shadow-sm text-center space-y-3.5">
+            <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-stone-400 uppercase tracking-widest">
+              <span>Mã bảo mật {currentCode.length} ký tự</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span className="text-emerald-600 font-semibold lowercase">đã đồng bộ api</span>
             </div>
+
+            {/* Prominent Monospace Characters (Flexible 12 or 6 chars) */}
+            {currentCode.length === 12 ? (
+              <div className="space-y-2 py-1">
+                {/* Row 1: 6 chars */}
+                <div className="flex items-center justify-center gap-1.5">
+                  {currentCode.slice(0, 6).split('').map((char, index) => (
+                    <div
+                      key={`r1-${index}`}
+                      className="w-10 h-13 sm:w-11 sm:h-14 rounded-2xl bg-rose-50/90 border-2 border-rose-300 flex items-center justify-center font-mono font-black text-xl sm:text-2xl text-rose-600 shadow-2xs"
+                    >
+                      {char}
+                    </div>
+                  ))}
+                </div>
+                {/* Row 2: 6 chars */}
+                <div className="flex items-center justify-center gap-1.5">
+                  {currentCode.slice(6, 12).split('').map((char, index) => (
+                    <div
+                      key={`r2-${index}`}
+                      className="w-10 h-13 sm:w-11 sm:h-14 rounded-2xl bg-rose-50/90 border-2 border-rose-300 flex items-center justify-center font-mono font-black text-xl sm:text-2xl text-rose-600 shadow-2xs"
+                    >
+                      {char}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-2 py-1">
+                {(currentCode || 'LV8942').split('').map((char, index) => (
+                  <div
+                    key={index}
+                    className="w-11 h-14 rounded-2xl bg-rose-50/90 border-2 border-rose-300 flex items-center justify-center font-mono font-black text-2xl text-rose-600 shadow-2xs"
+                  >
+                    {char}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Quick Actions: Copy & Refresh */}
             <div className="flex items-center justify-center gap-2 pt-1">
               <button
+                type="button"
                 onClick={handleCopyCode}
-                className="min-h-[40px] px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-semibold flex items-center gap-1.5 shadow-2xs active:scale-95 transition-all"
+                className="min-h-[42px] px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
               >
                 {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                <span>{copied ? 'Đã sao chép!' : 'Sao chép mã'}</span>
+                <span>{copied ? 'Đã sao chép mã!' : 'Sao chép mã'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleRegenerateCode}
                 disabled={isGeneratingCode}
-                className="min-h-[40px] px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all disabled:opacity-50"
+                className="min-h-[42px] px-3.5 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold flex items-center gap-1.5 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
                 title="Tạo mã kết nối mới từ API"
               >
                 <RefreshCw className={`w-3.5 h-3.5 text-stone-500 ${isGeneratingCode ? 'animate-spin' : ''}`} />
@@ -465,13 +498,14 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
               </button>
             </div>
 
-            {/* Share Link simulation */}
+            {/* Share Link */}
             <button
+              type="button"
               onClick={handleShareCode}
-              className="text-xs text-rose-600 hover:underline font-semibold flex items-center justify-center gap-1 mx-auto pt-1"
+              className="text-xs text-rose-600 hover:underline font-semibold flex items-center justify-center gap-1 mx-auto pt-1 cursor-pointer"
             >
               <Share2 className="w-3.5 h-3.5" />
-              <span>{shared ? 'Đã sao chép link mời!' : 'Chia sẻ link mời qua Zalo / Messenger'}</span>
+              <span>{shared ? 'Đã sao chép nội dung mời!' : 'Chia sẻ mã qua Zalo / Messenger'}</span>
             </button>
           </div>
 
@@ -487,7 +521,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
               </p>
             </div>
             <p className="text-[11px] text-purple-700 leading-snug">
-              Khi người ấy nhập mã này trên thiết bị của họ, bạn sẽ nhận được thông báo để xác nhận.
+              Khi người ấy nhập mã này trên thiết bị của họ, hệ thống sẽ tự động ghép đôi tức thì.
             </p>
 
             {/* Tester Shortcut Button */}
@@ -519,7 +553,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
               Nhập Mã Của Người Ấy
             </h2>
             <p className="text-xs text-stone-500 max-w-xs mx-auto">
-              Nhập chính xác mã gồm 6 ký tự mà người ấy đã chia sẻ với bạn.
+              Nhập chính xác mã ghép đôi mà người ấy đã gửi cho bạn.
             </p>
           </div>
 
@@ -530,37 +564,66 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
             </div>
           )}
 
-          {/* 6-Char Input Box */}
+          {/* Input Box */}
           <div className="bg-white rounded-3xl p-5 border border-purple-200/90 shadow-sm space-y-3">
-            <label className="block text-xs font-bold text-stone-700 text-center">
-              Nhập mã 6 ký tự:
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-stone-700">
+                Nhập mã ghép đôi:
+              </label>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard?.readText();
+                    if (text) {
+                      const clean = text.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 12);
+                      setInputCode(clean);
+                      playSound('click');
+                      if (error) setError('');
+                    }
+                  } catch {
+                    // Clipboard read not permitted
+                  }
+                }}
+                className="text-[11px] font-bold text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-xl border border-purple-200 transition-colors flex items-center gap-1 cursor-pointer"
+                title="Dán nhanh mã từ bộ nhớ tạm"
+              >
+                <Clipboard className="w-3 h-3" />
+                <span>Dán từ bộ nhớ tạm</span>
+              </button>
+            </div>
+
             <div className="relative">
               <input
                 type="text"
-                maxLength={6}
+                maxLength={12}
                 value={inputCode}
                 onChange={(e) => {
-                  setInputCode(e.target.value.toUpperCase());
+                  const val = e.target.value.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+                  setInputCode(val);
                   if (error) setError('');
                 }}
-                placeholder="LV8942"
-                className="w-full text-center font-mono font-black text-2xl tracking-[0.35em] py-3.5 px-4 bg-stone-50 rounded-2xl border-2 border-stone-200 focus:border-purple-500 focus:bg-white text-purple-700 uppercase focus:outline-none transition-all shadow-inner"
+                placeholder="Dán hoặc nhập mã..."
+                className="w-full text-center font-mono font-black text-xl sm:text-2xl tracking-[0.2em] py-3.5 px-4 bg-stone-50 rounded-2xl border-2 border-stone-200 focus:border-purple-500 focus:bg-white text-purple-700 uppercase focus:outline-none transition-all shadow-inner placeholder:text-stone-300 placeholder:text-sm placeholder:font-sans placeholder:tracking-normal"
               />
             </div>
             
-            {/* Quick Fill for Testing */}
-            <div className="text-center pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setInputCode(currentCode);
-                  playSound('click');
-                }}
-                className="text-[11px] text-purple-600 hover:text-purple-700 font-semibold underline"
-              >
-                Dán mã mẫu ({currentCode})
-              </button>
+            {/* Quick Fill & Counter */}
+            <div className="flex items-center justify-between text-[11px] text-stone-500 px-1">
+              <span>Đã nhập: <strong className="text-purple-700">{inputCode.length}/12</strong> ký tự</span>
+              {currentCode && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputCode(currentCode);
+                    playSound('click');
+                    if (error) setError('');
+                  }}
+                  className="text-purple-600 hover:text-purple-700 font-semibold underline cursor-pointer"
+                >
+                  Dán mã mẫu
+                </button>
+              )}
             </div>
           </div>
 
@@ -568,7 +631,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-md shadow-purple-600/25 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            className="w-full min-h-[48px] py-3.5 px-5 rounded-2xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold text-xs shadow-md shadow-purple-600/25 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
           >
             {isSubmitting ? (
               <>

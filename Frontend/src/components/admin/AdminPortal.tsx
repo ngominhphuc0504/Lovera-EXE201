@@ -14,7 +14,13 @@ import {
   ExternalLink,
   ChevronRight,
   LogOut,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  Unlock,
+  KeyRound,
+  Eye,
+  EyeOff,
+  AlertCircle
 } from 'lucide-react';
 import { AdminSystemMetric, AdminUserAccount, AdminActivityLog, MemoryItem, DatePlan } from '../../types';
 import { AdminDashboardTab } from './AdminDashboardTab';
@@ -39,6 +45,9 @@ interface AdminPortalProps {
 
 export type AdminTab = 'dashboard' | 'users' | 'content' | 'settings';
 
+const ADMIN_AUTH_KEY = 'lovera_admin_authenticated';
+const VALID_PASSCODES = ['lovera2026', 'admin123', 'admin', '2026'];
+
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   metrics,
   users,
@@ -52,6 +61,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onBackToCoupleApp,
   onManualSync,
 }) => {
+  // Check if admin is authenticated in current browser session
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem(ADMIN_AUTH_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const [passcode, setPasscode] = useState('');
+  const [showPasscode, setShowPasscode] = useState(false);
+  const [passcodeError, setPasscodeError] = useState('');
+  const [isShaking, setIsShaking] = useState(false);
+
   const [currentTab, setCurrentTab] = useState<AdminTab>('dashboard');
 
   const handleTabChange = (tab: AdminTab) => {
@@ -59,6 +82,153 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setCurrentTab(tab);
   };
 
+  const handleUnlockAdmin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = passcode.trim();
+
+    if (!trimmed) {
+      setPasscodeError('Vui lòng nhập mã bảo mật quản trị.');
+      playSound('error');
+      return;
+    }
+
+    if (VALID_PASSCODES.includes(trimmed.toLowerCase())) {
+      try {
+        sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
+      } catch (err) {
+        console.warn('sessionStorage error:', err);
+      }
+      playSound('success');
+      setIsAuthenticated(true);
+      setPasscodeError('');
+    } else {
+      playSound('error');
+      setPasscodeError('Mã bảo mật không chính xác. Quyền truy cập quản trị bị từ chối.');
+      setIsShaking(true);
+      setTimeout(() => setIsShaking(false), 600);
+    }
+  };
+
+  const handleLockAdmin = () => {
+    playSound('click');
+    try {
+      sessionStorage.removeItem(ADMIN_AUTH_KEY);
+    } catch (err) {
+      console.warn('sessionStorage error:', err);
+    }
+    setIsAuthenticated(false);
+    setPasscode('');
+    onBackToCoupleApp();
+  };
+
+  // -----------------------------------------------------------------
+  // PRIVATE ADMIN PASSCODE LOCK GATE (WHEN NOT AUTHENTICATED)
+  // -----------------------------------------------------------------
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen w-full bg-gradient-to-b from-stone-950 via-stone-900 to-stone-950 flex flex-col items-center justify-center p-4 text-stone-100 select-none relative overflow-hidden font-sans">
+        
+        {/* Ambient subtle backlights */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl pointer-events-none"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-rose-600/10 rounded-full blur-3xl pointer-events-none"></div>
+
+        {/* Security Card */}
+        <div className={`w-full max-w-md bg-stone-900/90 backdrop-blur-xl border border-stone-800/80 rounded-3xl p-7 sm:p-8 shadow-2xl relative z-10 transition-transform ${isShaking ? 'animate-bounce' : ''}`}>
+          
+          {/* Glowing Shield Icon */}
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-rose-500 via-purple-600 to-indigo-600 text-white flex items-center justify-center mx-auto shadow-lg shadow-purple-500/25 mb-5">
+            <Lock className="w-8 h-8" />
+          </div>
+
+          <div className="text-center mb-6">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-[11px] font-bold tracking-wide uppercase mb-2">
+              <Shield className="w-3.5 h-3.5 text-purple-400" />
+              <span>LOVERA Security Access</span>
+            </div>
+            <h1 className="text-2xl font-black text-white tracking-tight font-display">
+              Cổng Quản Trị Hệ Thống
+            </h1>
+            <p className="text-xs text-stone-400 mt-1.5 leading-relaxed">
+              Trang quản trị ở chế độ Private. Vui lòng nhập mã bảo mật quản trị viên (Admin Passcode) để tiếp tục.
+            </p>
+          </div>
+
+          {/* Error Message */}
+          {passcodeError && (
+            <div className="mb-4 p-3 rounded-2xl bg-rose-950/60 border border-rose-800/60 text-rose-300 text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{passcodeError}</span>
+            </div>
+          )}
+
+          {/* Passcode Form */}
+          <form onSubmit={handleUnlockAdmin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-stone-300 mb-1.5">
+                Mã Bảo Mật (Admin Passcode)
+              </label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-stone-500">
+                  <KeyRound className="w-4 h-4" />
+                </div>
+                <input
+                  type={showPasscode ? 'text' : 'password'}
+                  value={passcode}
+                  onChange={(e) => {
+                    setPasscode(e.target.value);
+                    if (passcodeError) setPasscodeError('');
+                  }}
+                  autoFocus
+                  placeholder="Nhập mã bảo mật (vd: lovera2026)..."
+                  className="w-full pl-10 pr-11 py-3 bg-stone-950/80 border border-stone-800 rounded-2xl text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500 transition-all font-mono tracking-wider placeholder:text-stone-600 placeholder:font-sans placeholder:tracking-normal"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasscode(!showPasscode)}
+                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-stone-500 hover:text-stone-300 transition-colors cursor-pointer"
+                >
+                  {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Unlock Button */}
+            <button
+              type="submit"
+              className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-rose-500 via-purple-600 to-indigo-600 hover:from-rose-600 hover:to-indigo-700 text-white font-bold text-xs shadow-lg shadow-purple-600/30 transition-all active:scale-98 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Unlock className="w-4 h-4" />
+              <span>Mở Khóa Quản Trị Viên</span>
+            </button>
+          </form>
+
+          {/* Return to Couple App */}
+          <div className="mt-5 pt-5 border-t border-stone-800/80 flex flex-col gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                playSound('click');
+                onBackToCoupleApp();
+              }}
+              className="w-full py-2.5 px-4 rounded-2xl bg-stone-800/60 hover:bg-stone-800 text-stone-300 hover:text-white font-semibold text-xs border border-stone-700/50 transition-all flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Quay Lại Ứng Dụng Cặp Đôi (Lovera App)</span>
+            </button>
+            <p className="text-[11px] text-center text-stone-400">
+              Mã mặc định hệ thống: <span className="font-mono text-purple-300 font-bold">lovera2026</span>
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+    );
+  }
+
+  // -----------------------------------------------------------------
+  // AUTHENTICATED ADMIN PORTAL DASHBOARD
+  // -----------------------------------------------------------------
   return (
     <div className="min-h-screen w-full bg-stone-100 flex flex-col md:flex-row text-stone-800 antialiased font-sans select-none">
       
@@ -80,7 +250,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     LOVERA ADMIN
                   </h1>
                   <span className="text-[9px] bg-purple-100 text-purple-700 font-extrabold px-1.5 py-0.2 rounded-md">
-                    PORTAL
+                    PRIVATE
                   </span>
                 </div>
                 <p className="text-[11px] text-stone-400">Bảng điều hành quản trị 2026</p>
@@ -100,7 +270,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <LayoutDashboard className="w-4 h-4" />
-                <span>Dashboard Tổng Quan</span>
+                <span>Dashboard Thống Kê</span>
               </div>
               {currentTab === 'dashboard' && <ChevronRight className="w-3.5 h-3.5 opacity-80" />}
             </button>
@@ -115,9 +285,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Users className="w-4 h-4" />
-                <span>Người Dùng & Cặp Đôi</span>
+                <span>Quản Lý Người Dùng</span>
               </div>
-              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                 currentTab === 'users' ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-500'
               }`}>
                 {users.length}
@@ -134,9 +304,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             >
               <div className="flex items-center gap-2.5">
                 <Camera className="w-4 h-4" />
-                <span>Nội Dung & Kỷ Niệm</span>
+                <span>Kiểm Duyệt Nội Dung</span>
               </div>
-              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-md ${
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                 currentTab === 'content' ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-500'
               }`}>
                 {memories.length}
@@ -160,7 +330,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </nav>
         </div>
 
-        {/* Footer Area with Switch to Couple App Button */}
+        {/* Footer Area with Switch to Couple App & Lock Admin */}
         <div className="p-3 border-t border-stone-100 space-y-2">
           
           {/* Quick Switch to User App */}
@@ -173,6 +343,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           >
             <Smartphone className="w-4 h-4 text-rose-500 group-hover:scale-110 transition-transform" />
             <span>Về App Cặp Đôi Lovera</span>
+          </button>
+
+          {/* Secure Lock & Exit Admin */}
+          <button
+            onClick={handleLockAdmin}
+            className="w-full py-2 px-3 rounded-xl bg-stone-100 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 border border-stone-200/80 text-stone-600 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            title="Đăng xuất khỏi phiên quản trị và khóa cổng Admin"
+          >
+            <Lock className="w-3.5 h-3.5 text-stone-500" />
+            <span>Khóa & Đăng Xuất Admin</span>
           </button>
 
           {/* Admin User Profile */}
@@ -212,7 +392,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 {currentTab === 'settings' && 'Cài Đặt Hệ Thống & Gemini AI'}
               </h2>
               <p className="text-[11px] text-stone-400">
-                Lovera Management System • Phiên bản 2.5
+                Lovera Management System • Phiên bản 2.5 (Private Mode)
               </p>
             </div>
           </div>
@@ -256,6 +436,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             >
               <Heart className="w-3.5 h-3.5 fill-rose-500" />
               <span>Mở App Cặp Đôi</span>
+            </button>
+
+            <button
+              onClick={handleLockAdmin}
+              className="text-xs font-bold text-stone-600 hover:text-rose-600 bg-stone-100 hover:bg-rose-50 border border-stone-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Khóa quyền quản trị"
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Khóa Admin</span>
             </button>
 
           </div>

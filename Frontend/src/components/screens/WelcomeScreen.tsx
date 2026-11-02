@@ -5,32 +5,17 @@ import { playSound } from '../../utils/audio';
 interface WelcomeScreenProps {
   onNavigateToLogin: () => void;
   onNavigateToRegister: () => void;
-  onNavigateToAdmin?: () => void;
 }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   onNavigateToLogin,
   onNavigateToRegister,
-  onNavigateToAdmin,
 }) => {
   return (
     <div className="relative min-h-[640px] h-full flex flex-col justify-between p-6 bg-gradient-to-b from-rose-50/80 via-white to-purple-50/70 text-stone-800 overflow-y-auto overflow-x-hidden select-none">
       
       {/* Top Admin Shortcut */}
-      {onNavigateToAdmin && (
-        <button
-          type="button"
-          onClick={() => {
-            playSound('click');
-            onNavigateToAdmin();
-          }}
-          className="absolute top-4 right-4 z-20 px-3 py-1.5 bg-white/90 backdrop-blur-xs hover:bg-white text-purple-700 hover:text-purple-900 border border-purple-200/90 rounded-full text-[11px] font-bold flex items-center gap-1.5 shadow-2xs transition-all active:scale-95 cursor-pointer"
-          title="Mở Trang Quản Trị Hệ Thống (Web Admin)"
-        >
-          <Shield className="w-3.5 h-3.5 text-purple-600" />
-          <span>Web Admin</span>
-        </button>
-      )}
+      
 
       {/* Ambient background blur circles wrapped in overflow-hidden */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -109,22 +94,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           <LogIn className="w-4 h-4 text-rose-500" />
           <span>Đã có tài khoản? Đăng Nhập</span>
         </button>
-
-        {onNavigateToAdmin && (
-          <div className="text-center pt-2">
-            <button
-              type="button"
-              onClick={() => {
-                playSound('click');
-                onNavigateToAdmin();
-              }}
-              className="text-[11px] font-bold text-purple-600 hover:text-purple-700 underline underline-offset-2 inline-flex items-center gap-1 mx-auto cursor-pointer"
-            >
-              <Shield className="w-3 h-3 text-purple-600" />
-              <span>Vào Bảng Điều Khiển Quản Trị (Web Admin)</span>
-            </button>
-          </div>
-        )}
       </div>
 
     </div>
