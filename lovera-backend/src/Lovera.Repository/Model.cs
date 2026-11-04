@@ -67,6 +67,9 @@ public sealed class LoveraDbContext(DbContextOptions<LoveraDbContext> options) :
     public DbSet<DatePlan> DatePlans => Set<DatePlan>();
     public DbSet<LoveMemory> Memories => Set<LoveMemory>();
     public DbSet<ConnectionStatus> ConnectionStatuses => Set<ConnectionStatus>();
+    public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+    public DbSet<AiMessage> AiMessages => Set<AiMessage>();
+    public DbSet<AiMessageSource> AiMessageSources => Set<AiMessageSource>();
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<UserAccount>(x => { x.ToTable("users"); x.HasKey(u => u.Id); x.Property(u => u.Email).HasMaxLength(320).IsRequired(); x.HasIndex(u => u.Email).IsUnique(); x.Property(u => u.PasswordHash).IsRequired(); x.Property(u => u.DisplayName).HasMaxLength(80).IsRequired(); x.Property(u => u.AvatarUrl).HasMaxLength(2048); });
@@ -96,5 +99,43 @@ public sealed class LoveraDbContext(DbContextOptions<LoveraDbContext> options) :
             .Property(u => u.RecoveryCodeHash)
             .HasMaxLength(64)
             .IsConcurrencyToken();
+        b.Entity<AiConversation>(x =>
+        {
+            x.ToTable("ai_conversations");
+            x.HasKey(c => c.Id);
+            x.Property(c => c.Title).HasMaxLength(120);
+            x.Property(c => c.ContextJson).HasColumnType("jsonb").IsRequired();
+            x.HasIndex(c => new { c.CoupleId, c.UpdatedAtUtc });
+            x.HasOne(c => c.Couple).WithMany().HasForeignKey(c => c.CoupleId)
+                .OnDelete(DeleteBehavior.Cascade);
+            x.HasOne(c => c.CreatedByUser).WithMany().HasForeignKey(c => c.CreatedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<AiMessage>(x =>
+        {
+            x.ToTable("ai_messages");
+            x.HasKey(m => m.Id);
+            x.Property(m => m.Role).HasMaxLength(20).IsRequired();
+            x.Property(m => m.Content).HasMaxLength(8000).IsRequired();
+            x.Property(m => m.StructuredDataJson).HasColumnType("jsonb");
+            x.Property(m => m.Provider).HasMaxLength(40);
+            x.Property(m => m.Model).HasMaxLength(100);
+            x.HasIndex(m => new { m.ConversationId, m.CreatedAtUtc });
+            x.HasOne(m => m.Conversation).WithMany(c => c.Messages)
+                .HasForeignKey(m => m.ConversationId).OnDelete(DeleteBehavior.Cascade);
+            x.HasOne(m => m.SenderUser).WithMany().HasForeignKey(m => m.SenderUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+        b.Entity<AiMessageSource>(x =>
+        {
+            x.ToTable("ai_message_sources");
+            x.HasKey(s => s.Id);
+            x.Property(s => s.Url).HasMaxLength(2048).IsRequired();
+            x.Property(s => s.Title).HasMaxLength(300).IsRequired();
+            x.HasIndex(s => s.MessageId);
+            x.HasOne(s => s.Message).WithMany(m => m.Sources)
+                .HasForeignKey(s => s.MessageId).OnDelete(DeleteBehavior.Cascade);
+        });
+
     }
 }
