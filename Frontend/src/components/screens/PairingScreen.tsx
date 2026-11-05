@@ -37,7 +37,7 @@ interface PairingScreenProps {
   initialStage?: PairingStage;
   currentUser?: Partner;
   bannerMessage?: string;
-  onPairSuccess: (partner: { name: string; email: string; avatar: string } | string) => void;
+  onPairSuccess: (partner: { id?: string; name: string; email: string; avatar: string } | string) => void;
   onBackToAuth?: () => void;
   onOpenProfile?: () => void;
 }
@@ -85,6 +85,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   }, [bannerMessage]);
 
   const [partnerCandidate, setPartnerCandidate] = useState<{
+    id?: string;
     name: string;
     email: string;
     avatar: string;
@@ -133,7 +134,13 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
     const interval = setInterval(async () => {
       try {
         const res = await coupleService.getStatus();
-        if (res.isPaired) {
+        if (res.isPaired && res.couple?.partner) {
+          setPartnerCandidate({
+            id: res.couple.partner.userId,
+            name: res.couple.partner.displayName,
+            email: res.couple.partner.email,
+            avatar: res.couple.partner.avatarUrl || partnerCandidate.avatar,
+          });
           playSound('success');
           setStage('success');
           clearInterval(interval);
@@ -193,7 +200,13 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
 
     try {
       // Call Real Backend API: POST /api/couples/join
-      await coupleService.joinCouple(formatted);
+      const couple = await coupleService.joinCouple(formatted);
+      setPartnerCandidate({
+        id: couple.partner.userId,
+        name: couple.partner.displayName,
+        email: couple.partner.email,
+        avatar: couple.partner.avatarUrl || partnerCandidate.avatar,
+      });
       setIsSubmitting(false);
       playSound('success');
       setStage('success');
@@ -220,6 +233,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   // Final confirmation to enter Home
   const handleEnterHome = () => {
     onPairSuccess({
+      id: partnerCandidate.id,
       name: partnerCandidate.name,
       email: partnerCandidate.email,
       avatar: partnerCandidate.avatar

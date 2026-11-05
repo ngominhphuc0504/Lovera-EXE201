@@ -185,7 +185,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <div className="flex items-center justify-between gap-1.5 sm:gap-3">
           
           {/* Partner 1: User A */}
-          <div className="flex items-center gap-2 min-w-0 max-w-[130px] sm:max-w-[145px]">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <div 
               onClick={() => fileInputRef.current?.click()}
               className="relative cursor-pointer group select-none shrink-0"
@@ -216,16 +216,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </span>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1">
-                <h3 className="font-bold text-xs text-stone-900 leading-tight truncate">{userA.name}</h3>
+              <div className="flex flex-wrap items-center gap-1">
                 <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   Online
                 </span>
+                <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userA.name}</h3>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-center gap-1 mt-0.5 font-normal truncate">
-                <Smile className="w-2.5 h-2.5 text-rose-400 shrink-0" />
-                <span className="truncate">{getStatusLabel(userA.status)}</span>
+              <p className="text-[10px] text-stone-500 flex items-start gap-0.5 mt-0.5 font-normal whitespace-normal" title={`${getStatusLabel(userA.status)}${userA.activity ? ' · ' + getActivityLabel(userA.activity) : ''}`}>
+                <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                <span className="[overflow-wrap:anywhere]">{getStatusLabel(userA.status)}{userA.activity ? ` · ${getActivityLabel(userA.activity)}` : ` · ${getActivityLabel()}`}</span>
               </p>
             </div>
           </div>
@@ -239,7 +239,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
 
           {/* Partner 2: User B */}
-          <div className="flex items-center gap-2 min-w-0 max-w-[130px] sm:max-w-[145px] flex-row-reverse text-right">
+          <div className="flex items-center gap-2 min-w-0 flex-1 flex-row-reverse text-left">
             <div className="relative shrink-0">
               <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs">
                 <img
@@ -258,7 +258,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-end gap-1">
+              <div className="flex flex-wrap items-center justify-start gap-1">
                 {userB.isOnline ? (
                   <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -269,11 +269,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {getStatusLabel(userB.status)}
                   </span>
                 )}
-                <h3 className="font-bold text-xs text-stone-900 leading-tight truncate">{userB.name}</h3>
+                <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userB.name}</h3>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-center justify-end gap-0.5 mt-0.5 font-normal truncate" title={`${getStatusLabel(userB.status)}${userB.activity ? ' · ' + getActivityLabel(userB.activity) : ''}`}>
+              <p className="text-[10px] text-stone-500 flex items-start justify-start gap-0.5 mt-0.5 font-normal whitespace-normal" title={`${getStatusLabel(userB.status)}${userB.activity ? ' · ' + getActivityLabel(userB.activity) : ''}`}>
                 <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />
-                <span className="truncate">{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
+                <span className="[overflow-wrap:anywhere]">{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
               </p>
             </div>
           </div>

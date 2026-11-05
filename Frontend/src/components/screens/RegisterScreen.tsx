@@ -5,7 +5,7 @@ import { authService } from '../../services/authService';
 import { VerifyOtpModal } from '../modals/VerifyOtpModal';
 
 interface RegisterScreenProps {
-  onRegisterSuccess: (email: string, name: string) => void;
+  onRegisterSuccess: (email: string, name: string, isDemoMode: boolean) => void;
   onNavigateToLogin: () => void;
   onBackToWelcome: () => void;
 }
@@ -108,20 +108,21 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
   // Called when OTP verification succeeds
   const handleOtpVerified = async () => {
     setIsOtpModalOpen(false);
+    let isDemoMode = false;
     try {
       // Auto-login with credentials
       await authService.login({ email: registeredEmail, password });
     } catch {
-      // ignore auto-login failure
+      isDemoMode = true;
     }
-    onRegisterSuccess(registeredEmail, name.trim());
+    onRegisterSuccess(registeredEmail, name.trim(), isDemoMode);
   };
 
   // Continue demo/offline mode
   const handleBypassToDemo = () => {
     playSound('chime');
     setIsOtpModalOpen(false);
-    onRegisterSuccess(email.trim() || 'user@lovera.app', name.trim() || 'Alex');
+    onRegisterSuccess(email.trim() || 'user@lovera.app', name.trim() || 'Alex', true);
   };
 
   return (

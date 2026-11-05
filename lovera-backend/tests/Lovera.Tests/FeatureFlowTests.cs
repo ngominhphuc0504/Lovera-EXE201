@@ -50,6 +50,46 @@ public sealed class FeatureFlowTests
     }
 
     [Fact]
+    public async Task Pairing_status_returns_the_real_partner_profile()
+    {
+        var repo = new Mock<IFeatureRepository>();
+        var userId = Guid.NewGuid();
+        var partnerId = Guid.NewGuid();
+        var couple = new Couple
+        {
+            Members =
+            [
+                new CoupleMember
+                {
+                    UserId = userId,
+                    User = new UserAccount { Id = userId, DisplayName = "Minh", Email = "minh@example.com" }
+                },
+                new CoupleMember
+                {
+                    UserId = partnerId,
+                    User = new UserAccount
+                    {
+                        Id = partnerId,
+                        DisplayName = "Người thương thật",
+                        Email = "partner@example.com",
+                        AvatarUrl = "/avatar.png"
+                    }
+                }
+            ]
+        };
+        repo.Setup(r => r.ActiveCouple(userId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(couple);
+        var service = new CoupleService(repo.Object, new FakeClock(), TimeZoneInfo.Utc);
+
+        var status = await service.Status(userId, default);
+
+        Assert.Equal("Người thương thật", status.Couple?.Partner.DisplayName);
+        Assert.Equal("partner@example.com", status.Couple?.Partner.Email);
+        Assert.Equal("/avatar.png", status.Couple?.Partner.AvatarUrl);
+        Assert.Equal(partnerId, status.Couple?.Partner.UserId);
+    }
+
+    [Fact]
     public async Task Love_days_uses_calendar_days_in_the_configured_timezone()
     {
         var h = new Harness();

@@ -7,7 +7,9 @@ using Npgsql;
 namespace Lovera.Service;
 
 public sealed record PairingCodeResponse(string Code, DateTime ExpiresAtUtc);
-public sealed record CoupleResponse(Guid CoupleId, Guid[] UserIds, DateTime CreatedAtUtc, DateOnly? StartDate, bool IsActive);
+public sealed record CoupleMemberResponse(Guid UserId, string DisplayName, string Email, string? AvatarUrl);
+public sealed record CoupleResponse(Guid CoupleId, Guid[] UserIds, DateTime CreatedAtUtc, DateOnly? StartDate, bool IsActive,
+    CoupleMemberResponse[] Members, CoupleMemberResponse Partner);
 public sealed record PairingStatusResponse(string State, CoupleResponse? Couple, DateTime? PendingUntilUtc);
 public sealed record LoveDaysResponse(Guid CoupleId, DateOnly? StartDate, DateOnly Today, int? TotalDays, string TimeZone);
 
@@ -33,14 +35,14 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
     public async Task<PairingStatusResponse> Status(Guid userId, CancellationToken ct)
     {
         var couple = await repo.ActiveCouple(userId, ct);
-        if (couple is not null) return new PairingStatusResponse("paired", ToResponse(couple), null);
+        if (couple is not null) return new PairingStatusResponse("paired", ToResponse(couple, userId), null);
         var invitation = await repo.PendingInvitation(userId, clock.UtcNow, ct);
         return invitation is null ? new PairingStatusResponse("single", null, null) : new PairingStatusResponse("pending", null, invitation.ExpiresAtUtc);
     }
 
     public async Task<CoupleResponse> Join(Guid userId, string code, CancellationToken ct)
     {
-        await RequireExistingUser(userId, ct);
+        var joiningUser = await RequireExistingUser(userId, ct);
         if (string.IsNullOrWhiteSpace(code) || (code.Length != 6 && code.Length != 12) || !code.All(Uri.IsHexDigit))
             throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");
         var invitation = await repo.Invitation(HashCode(code.ToUpperInvariant()), ct)
@@ -56,13 +58,15 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
         if (invitation.ExpiresAtUtc <= clock.UtcNow) throw new AppProblem(410, "pairing_code_expired", "Mã ghép đôi đã hết hạn.");
         if (invitation.RedeemedAtUtc is not null || invitation.CancelledAtUtc is not null)
             throw new AppProblem(400, "invalid_pairing_code", "Mã ghép đôi không hợp lệ.");
-        await RequireExistingUser(invitation.CreatorUserId, ct);
+        var creator = await RequireExistingUser(invitation.CreatorUserId, ct);
         if (await repo.ActiveCouple(userId, ct) is not null || await repo.ActiveCouple(invitation.CreatorUserId, ct) is not null)
             throw new AppProblem(409, "already_paired", "Một trong hai tài khoản đã ghép đôi.");
         var now = clock.UtcNow;
         var couple = new Couple { CreatedAtUtc = now };
-        couple.Members = [new CoupleMember { CoupleId = couple.Id, UserId = invitation.CreatorUserId, JoinedAtUtc = now },
-            new CoupleMember { CoupleId = couple.Id, UserId = userId, JoinedAtUtc = now }];
+        couple.Members = [
+            new CoupleMember { CoupleId = couple.Id, UserId = invitation.CreatorUserId, User = creator, JoinedAtUtc = now },
+            new CoupleMember { CoupleId = couple.Id, UserId = userId, User = joiningUser, JoinedAtUtc = now }
+        ];
         couple.Garden = new Garden { CoupleId = couple.Id, Stage = 1 };
         invitation.RedeemedAtUtc = now;
         foreach (var owner in new[] { invitation.CreatorUserId, userId })
@@ -72,7 +76,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
         try { await repo.Save(ct); await tx.CommitAsync(ct); }
         catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
         { throw new AppProblem(409, "already_paired", "Một trong hai tài khoản đã ghép đôi."); }
-        return ToResponse(couple);
+        return ToResponse(couple, userId);
     }
 
     public async Task Unpair(Guid userId, bool confirmed, CancellationToken ct)
@@ -121,7 +125,7 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
             couple.StartDate is { } start ? today.DayNumber - start.DayNumber + 1 : null, timeZone.Id);
     }
 
-    private async Task RequireExistingUser(
+    private async Task<UserAccount> RequireExistingUser(
         Guid userId, CancellationToken ct)
     {
         var user = await repo.User(userId, ct);
@@ -134,8 +138,16 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
             throw new AppProblem(
                 403, "email_unverified",
                 "Cần xác thực email trước khi ghép đôi.");
+        return user;
     }
 
-    private static CoupleResponse ToResponse(Couple c) =>
-        new(c.Id, c.Members.Select(m => m.UserId).ToArray(), c.CreatedAtUtc, c.StartDate, c.EndedAtUtc is null);
+    private static CoupleResponse ToResponse(Couple c, Guid userId)
+    {
+        var members = c.Members.Where(m => m.LeftAtUtc is null)
+            .Select(m => new CoupleMemberResponse(m.UserId, m.User.DisplayName, m.User.Email, m.User.AvatarUrl))
+            .ToArray();
+        var partner = members.Single(m => m.UserId != userId);
+        return new CoupleResponse(c.Id, members.Select(m => m.UserId).ToArray(), c.CreatedAtUtc,
+            c.StartDate, c.EndedAtUtc is null, members, partner);
+    }
 }

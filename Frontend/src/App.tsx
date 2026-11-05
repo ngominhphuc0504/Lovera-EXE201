@@ -40,11 +40,12 @@ import { STORAGE_KEYS, loadStoredData, saveStoredData, broadcastMessage, subscri
 import { getStoredToken } from './services/apiClient';
 import { authService } from './services/authService';
 import { coupleService } from './services/coupleService';
-import { memoryService } from './services/memoryService';
+import { getMemoryImageUrl, memoryService } from './services/memoryService';
 
 export default function App() {
   // Main Screen Navigation State (First-time open -> Welcome Screen)
   const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
+  const [isDemoMode, setIsDemoMode] = useState(() => !getStoredToken());
   const [pairingInitialStage, setPairingInitialStage] = useState<PairingStage>('idle');
   const [pairingBannerMessage, setPairingBannerMessage] = useState<string>('');
 
@@ -63,6 +64,9 @@ export default function App() {
   const [memories, setMemories] = useState<MemoryItem[]>(() =>
     loadStoredData(STORAGE_KEYS.MEMORIES, INITIAL_MEMORIES)
   );
+  const [backendMemories, setBackendMemories] = useState<MemoryItem[]>([]);
+  const [isLoadingBackendMemories, setIsLoadingBackendMemories] = useState(false);
+  const [backendMemoriesError, setBackendMemoriesError] = useState('');
   const [adminUsers, setAdminUsers] = useState<AdminUserAccount[]>(() =>
     loadStoredData(STORAGE_KEYS.ADMIN_USERS, INITIAL_ADMIN_USERS)
   );
@@ -73,6 +77,57 @@ export default function App() {
     loadStoredData(STORAGE_KEYS.ADMIN_METRICS, INITIAL_ADMIN_METRICS)
   );
   const [previousScreen, setPreviousScreen] = useState<Screen>('welcome');
+
+  const mapBackendMemory = (item: Awaited<ReturnType<typeof memoryService.getTimeline>>[number]): MemoryItem => {
+    const creatorId = (item.creatorUserId || item.userId || '').toLowerCase();
+    const author = [couple.userA, couple.userB].find(partner => partner.id.toLowerCase() === creatorId);
+    const createdAt = new Date(item.createdAtUtc);
+    const validDate = !Number.isNaN(createdAt.getTime());
+
+    return {
+      id: item.id,
+      imageUrl: item.hasImage ? getMemoryImageUrl(item.id) : '',
+      caption: item.text || 'Một khoảnh khắc đáng nhớ của hai đứa.',
+      date: validDate ? createdAt.toISOString().slice(0, 10) : '',
+      location: undefined,
+      tag: 'Kỷ niệm',
+      authorName: author?.name || 'Thành viên cặp đôi',
+      authorAvatar: author?.avatar || couple.userA.avatar,
+      likes: 0,
+      isLiked: false,
+      createdAt: validDate ? createdAt.toLocaleString('vi-VN') : item.createdAtUtc,
+    };
+  };
+
+  const refreshBackendMemories = async (): Promise<boolean> => {
+    setIsLoadingBackendMemories(true);
+    setBackendMemoriesError('');
+    setBackendMemories([]);
+    try {
+      const items = await memoryService.getTimeline();
+      setBackendMemories(items.map(mapBackendMemory));
+      return true;
+    } catch (error) {
+      setBackendMemoriesError(error instanceof Error ? error.message : 'Không thể tải kỷ niệm từ máy chủ.');
+      return false;
+    } finally {
+      setIsLoadingBackendMemories(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (currentScreen !== 'shared' || isDemoMode) return;
+    void refreshBackendMemories();
+  }, [
+    currentScreen,
+    isDemoMode,
+    couple.userA.id,
+    couple.userA.name,
+    couple.userA.avatar,
+    couple.userB.id,
+    couple.userB.name,
+    couple.userB.avatar,
+  ]);
 
   const navigateToAdmin = () => {
     playSound('click');
@@ -123,31 +178,43 @@ export default function App() {
     return () => window.removeEventListener('popstate', checkUrl);
   }, []);
 
-  // Auto load real user profile and couple status if JWT token exists
-  React.useEffect(() => {
-    const token = getStoredToken();
-    if (!token) return;
+  const syncAuthenticatedCouple = async () => {
+    if (!getStoredToken()) return;
 
-    (async () => {
-      try {
-        const profile = await authService.getProfile();
-        if (profile?.displayName || profile?.email) {
-          const status = await coupleService.getStatus().catch(() => null);
-          setCouple(prev => ({
-            ...prev,
-            userA: {
-              ...prev.userA,
-              name: profile.displayName || prev.userA.name,
-              email: profile.email || prev.userA.email,
-              avatar: profile.avatarUrl || prev.userA.avatar,
-            },
-            isPaired: Boolean(status?.isPaired),
-          }));
-        }
-      } catch (err) {
-        console.warn('[App] Auto fetch real user profile failed:', err);
-      }
-    })();
+    try {
+      const [profile, status] = await Promise.all([
+        authService.getProfile(),
+        coupleService.getStatus(),
+      ]);
+      setCouple(prev => ({
+        ...prev,
+        coupleId: status.couple?.coupleId || prev.coupleId,
+        startDate: status.couple?.startDate || prev.startDate,
+        isPaired: Boolean(status.isPaired),
+        userA: {
+          ...prev.userA,
+          id: profile.id,
+          name: profile.displayName || prev.userA.name,
+          email: profile.email || prev.userA.email,
+          avatar: profile.avatarUrl || prev.userA.avatar,
+        },
+        userB: status.couple?.partner
+          ? {
+              ...prev.userB,
+              id: status.couple.partner.userId,
+              name: status.couple.partner.displayName,
+              email: status.couple.partner.email,
+              avatar: status.couple.partner.avatarUrl || prev.userB.avatar,
+            }
+          : prev.userB,
+      }));
+    } catch (err) {
+      console.warn('[App] Auto fetch real profile and couple status failed:', err);
+    }
+  };
+
+  React.useEffect(() => {
+    void syncAuthenticatedCouple();
   }, []);
 
   // Live Cross-Tab Synchronization with BroadcastChannel & localStorage
@@ -401,7 +468,20 @@ export default function App() {
   // -----------------------------------------------------------------
   // SHARED SPACE / MEMORIES HANDLERS (F06)
   // -----------------------------------------------------------------
-  const handleAddMemory = (newMemory: Omit<MemoryItem, 'id' | 'createdAt' | 'likes' | 'isLiked'>) => {
+  const handleAddMemory = async (
+    newMemory: Omit<MemoryItem, 'id' | 'createdAt' | 'likes' | 'isLiked'>,
+    imageFile?: File,
+  ) => {
+    if (!isDemoMode) {
+      if (!imageFile) {
+        throw new Error('Vui lòng chọn một ảnh hợp lệ để tải lên.');
+      }
+      const saved = await memoryService.createMemory(newMemory.caption, imageFile);
+      setBackendMemories(prev => [mapBackendMemory(saved), ...prev.filter(memory => memory.id !== saved.id)]);
+      void refreshBackendMemories();
+      return;
+    }
+
     const created: MemoryItem = {
       ...newMemory,
       id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -416,13 +496,6 @@ export default function App() {
       broadcastMessage('SYNC_MEMORIES', next);
       return next;
     });
-
-    // Also call Real Backend API if authenticated
-    if (getStoredToken()) {
-      memoryService.createMemory(newMemory.caption).catch(err => {
-        console.warn('[App] Real API createMemory background sync error:', err);
-      });
-    }
 
     addPoints(10, `Lưu ảnh kỷ niệm: ${newMemory.caption.slice(0, 20)}...`, newMemory.authorName);
     playSound('success');
@@ -477,7 +550,14 @@ export default function App() {
     playSound('click');
   };
 
-  const handleDeleteMemory = (id: string) => {
+  const handleDeleteMemory = async (id: string) => {
+    if (!isDemoMode) {
+      await memoryService.deleteMemory(id);
+      setBackendMemories(prev => prev.filter(memory => memory.id !== id));
+      void refreshBackendMemories();
+      return;
+    }
+
     setMemories(prev => {
       const next = prev.filter(m => m.id !== id);
       saveStoredData(STORAGE_KEYS.MEMORIES, next);
@@ -931,7 +1011,8 @@ export default function App() {
           {/* Register Screen (Form tạo tài khoản & validation) */}
           {currentScreen === 'register' && (
             <RegisterScreen
-              onRegisterSuccess={(email, name) => {
+              onRegisterSuccess={(email, name, demoMode) => {
+                setIsDemoMode(demoMode);
                 setCouple(prev => ({
                   ...prev,
                   userA: { ...prev.userA, email, name },
@@ -955,13 +1036,15 @@ export default function App() {
           {/* Login Screen (Form đăng nhập, validation, chuyển tiếp theo trạng thái ghép đôi) */}
           {currentScreen === 'login' && (
             <LoginScreen
-              onLoginSuccess={(email, name, isAlreadyPaired) => {
+              onLoginSuccess={(email, name, isAlreadyPaired, demoMode) => {
+                setIsDemoMode(demoMode);
                 setCouple(prev => ({
                   ...prev,
                   userA: { ...prev.userA, email, name },
                   isPaired: isAlreadyPaired,
                 }));
                 if (isAlreadyPaired) {
+                  void syncAuthenticatedCouple();
                   setCurrentScreen('home');
                 } else {
                   setPairingInitialStage('idle');
@@ -983,13 +1066,15 @@ export default function App() {
           {/* Backward compatibility for auth screen */}
           {currentScreen === 'auth' && (
             <LoginScreen
-              onLoginSuccess={(email, name, isAlreadyPaired) => {
+              onLoginSuccess={(email, name, isAlreadyPaired, demoMode) => {
+                setIsDemoMode(demoMode);
                 setCouple(prev => ({
                   ...prev,
                   userA: { ...prev.userA, email, name },
                   isPaired: isAlreadyPaired,
                 }));
                 if (isAlreadyPaired) {
+                  void syncAuthenticatedCouple();
                   setCurrentScreen('home');
                 } else {
                   setPairingInitialStage('idle');
@@ -1026,7 +1111,7 @@ export default function App() {
                   lovePoints: 100,
                   userB: {
                     ...prev.userB,
-                    id: 'usr_partner',
+                    id: typeof partnerInfo === 'string' ? 'usr_partner' : (partnerInfo.id || 'usr_partner'),
                     name: partnerName,
                     email: partnerEmail,
                     avatar: partnerAvatar,
@@ -1091,7 +1176,11 @@ export default function App() {
           {currentScreen === 'shared' && (
             <SharedSpaceScreen
               couple={couple}
-              memories={memories}
+              memories={isDemoMode ? memories : backendMemories}
+              isBackendMode={!isDemoMode}
+              isLoadingMemories={!isDemoMode && isLoadingBackendMemories}
+              memoriesError={!isDemoMode ? backendMemoriesError : ''}
+              onRetryLoadMemories={() => void refreshBackendMemories()}
               onAddMemory={handleAddMemory}
               onEditMemory={handleEditMemory}
               onDeleteMemory={handleDeleteMemory}
