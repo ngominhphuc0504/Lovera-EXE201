@@ -126,7 +126,7 @@ public sealed class AuthService(IUsersRepository users, IVerificationMail mail, 
         user.LoginLockedUntilUtc = null;
         if (!user.EmailVerified) { await users.Save(ct); throw new AppProblem(403, "email_unverified", "Cần xác thực email trước khi đăng nhập."); }
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
-        var session = new UserSession { UserId = user.Id, TokenHash = TokenHash(token), CreatedAtUtc = now, ExpiresAtUtc = now.AddDays(7) };
+        var session = new UserSession { UserId = user.Id, TokenHash = TokenHash(token), CreatedAtUtc = now, ExpiresAtUtc = now.AddDays(1) };
         users.AddSession(session);
         await users.Save(ct);
         return new LoginResponse(token, session.ExpiresAtUtc, ToProfile(user));
