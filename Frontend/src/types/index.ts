@@ -73,6 +73,8 @@ export interface MemoryItem {
   tag: MemoryTag;
   authorName: string;
   authorAvatar: string;
+  creatorUserId?: string;
+  isMyMemory?: boolean;
   likes: number;
   isLiked?: boolean;
   createdAt: string;

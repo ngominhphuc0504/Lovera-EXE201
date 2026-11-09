@@ -20,12 +20,14 @@ export const STORAGE_KEYS = {
 
 export type SyncMessageType = 
   | 'SYNC_MEMORIES'
+  | 'SYNC_MEMORY_LIKES'
   | 'SYNC_COUPLE'
   | 'SYNC_ADMIN_USERS'
   | 'SYNC_ADMIN_LOGS'
   | 'SYNC_ADMIN_METRICS'
   | 'SYNC_DATE_PLANS'
   | 'SYNC_POINT_HISTORY'
+  | 'SYNC_AVATAR'
   | 'REQUEST_SYNC'
   | 'SYNC_ALL';
 
@@ -37,6 +39,28 @@ export interface SyncMessage<T = any> {
 }
 
 // Generate unique ID per browser tab to avoid echo loops
+export function cleanupOversizedStorage(): void {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key) {
+        const val = localStorage.getItem(key);
+        if (val && (val.startsWith('/api/') || (val.length > 100 * 1024 && (key.includes('avatar') || key.includes('alex'))))) {
+          keysToRemove.push(key);
+        }
+      }
+    }
+    keysToRemove.forEach(k => {
+      console.warn('[SyncManager] Evicted oversized legacy key from storage:', k);
+      localStorage.removeItem(k);
+    });
+  } catch {}
+}
+
+cleanupOversizedStorage();
+
 export const TAB_ID = 'tab_' + Math.random().toString(36).slice(2, 9);
 
 /**
@@ -63,6 +87,12 @@ export function saveStoredData<T>(key: string, value: T): boolean {
     return true;
   } catch (err) {
     console.warn(`[SyncManager] Failed to save key "${key}" to localStorage:`, err);
+    cleanupOversizedStorage();
+    try {
+      localStorage.removeItem('lovera_alex_avatar');
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {}
     return false;
   }
 }
@@ -195,3 +225,24 @@ export function compressImageFile(file: File, maxWidth = 1080, quality = 0.82): 
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * Converts a base64 DataURL to a native File object for multipart/form-data upload.
+ */
+export function dataUrlToFile(dataUrl: string, filename = 'avatar.jpg'): File {
+  try {
+    const arr = dataUrl.split(',');
+    const mimeMatch = arr[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+  } catch {
+    return new File([], filename, { type: 'image/jpeg' });
+  }
+}
+

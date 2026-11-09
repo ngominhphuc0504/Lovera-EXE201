@@ -3,7 +3,7 @@
 // Base URL: http://localhost:5164/api
 // ============================================================================
 
-export const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5164/api';
+export const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const TOKEN_KEY = 'lovera_access_token';
 const USER_KEY = 'lovera_current_user_profile';
@@ -97,11 +97,16 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     headers.set('Content-Type', 'application/json');
   }
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const signal = options.signal || controller.signal;
+
   try {
     const response = await fetch(url, {
       ...options,
       headers,
-    });
+      signal,
+    }).finally(() => clearTimeout(timeoutId));
 
     // 204 No Content
     if (response.status === 204) {
@@ -143,10 +148,17 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     if (err instanceof ApiError) {
       throw err;
     }
+    if (err?.name === 'AbortError') {
+      throw new ApiError(
+        'Máy chủ Backend không phản hồi (Timeout sau 10 giây). Vui lòng thử lại hoặc sử dụng lối tắt kiểm thử.',
+        504,
+        'timeout'
+      );
+    }
     // Network errors (e.g. Failed to fetch when backend is offline)
     throw new ApiError(
       err.message === 'Failed to fetch' 
-        ? 'Không thể kết nối đến máy chủ Backend (http://localhost:5164). Vui lòng kiểm tra lại dịch vụ.'
+        ? 'Không thể kết nối đến máy chủ Backend. Vui lòng kiểm tra lại kết nối mạng hoặc thử lại sau.'
         : err.message || 'Lỗi kết nối mạng.',
       0,
       'network_error'

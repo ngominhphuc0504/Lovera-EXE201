@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Heart, Lock, Mail, ArrowLeft, Eye, EyeOff, AlertCircle, LogIn, CheckCircle2, Shield, Sparkles } from 'lucide-react';
 import { playSound } from '../../utils/audio';
 import { authService } from '../../services/authService';
+import { coupleService } from '../../services/coupleService';
 import { VerifyOtpModal } from '../modals/VerifyOtpModal';
 
 interface LoginScreenProps {
@@ -73,7 +74,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       setIsLoading(false);
       playSound('success');
 
-      const isPaired = trimmedEmail.toLowerCase().includes('paired');
+      let isPaired = false;
+      try {
+        const pairingStatus = await coupleService.getStatus();
+        isPaired = Boolean(pairingStatus.isPaired);
+      } catch (statusErr) {
+        console.warn('[LoginScreen] Could not fetch pairing status from backend:', statusErr);
+      }
       const displayName = result.profile?.displayName || trimmedEmail.split('@')[0] || 'Alex';
       const capitalizedName = displayName.charAt(0).toUpperCase() + displayName.slice(1);
 
@@ -295,9 +302,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       {isOtpModalOpen && (
         <VerifyOtpModal
           email={email.trim()}
-          onSuccess={() => {
+          onSuccess={async () => {
             setIsOtpModalOpen(false);
-            const isPaired = email.toLowerCase().includes('paired');
+            let isPaired = false;
+            try {
+              const pairingStatus = await coupleService.getStatus();
+              isPaired = Boolean(pairingStatus.isPaired);
+            } catch (statusErr) {
+              console.warn('[LoginScreen] Could not fetch pairing status after OTP:', statusErr);
+            }
             const name = email.split('@')[0] || 'Alex';
             onLoginSuccess(email.trim(), name, isPaired, false);
           }}
