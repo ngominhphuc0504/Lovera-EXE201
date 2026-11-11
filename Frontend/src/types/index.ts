@@ -60,6 +60,8 @@ export interface ChatMessage {
   timestamp: string;
   suggestions?: string[];
   isGemini?: boolean;
+  data?: any;
+  sources?: Array<{ url: string; title: string }>;
 }
 
 export type MemoryTag = 'Hẹn hò' | 'Kỷ niệm' | 'Du lịch' | 'Đời thường' | 'Khoảnh khắc';

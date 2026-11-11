@@ -103,8 +103,13 @@ Cách viết tin nhắn làm lành chân thành`;
       }
     ];
 
-    // Thử lần lượt các mô hình Gemini phổ biến
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    // Thử lần lượt các mô hình Gemini theo thứ tự ưu tiên
+    const modelsToTry = [
+      'gemini-3.8-flash',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash'
+    ];
     let responseText = '';
     let lastError: unknown = null;
 

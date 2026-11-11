@@ -46,12 +46,34 @@ public sealed class MemoryService(IFeatureRepository repo, CoupleService couples
         return ToResponse(memory);
     }
 
-    public async Task<IReadOnlyList<MemoryResponse>> Timeline(Guid userId, CancellationToken ct)
+    public async Task<IReadOnlyList<MemoryResponse>> Timeline(
+        Guid userId,
+        int take,
+        CancellationToken ct)
     {
-        var couple = await couples.RequireCouple(userId, ct);
-        var items = await repo.Memories(couple.Id, 100, ct);
-        return items.Select(m => new MemoryResponse(m.Id, m.CoupleId, m.CreatorUserId,
-            m.Text, m.HasImage, m.HasImage ? $"/api/memories/{m.Id}/image" : null, m.CreatedAtUtc)).ToArray();
+        var couple = await couples.RequireCouple(
+            userId,
+            ct);
+
+        take = Math.Clamp(take, 1, 50);
+
+        var items = await repo.Memories(
+            couple.Id,
+            take,
+            ct);
+
+        return items
+            .Select(memory => new MemoryResponse(
+                memory.Id,
+                memory.CoupleId,
+                memory.CreatorUserId,
+                memory.Text,
+                memory.HasImage,
+                memory.HasImage
+                    ? $"/api/memories/{memory.Id}/image"
+                    : null,
+                memory.CreatedAtUtc))
+            .ToArray();
     }
 
     public async Task<MemoryImage> Image(Guid userId, Guid id, CancellationToken ct)
