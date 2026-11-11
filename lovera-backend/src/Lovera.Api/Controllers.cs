@@ -6,118 +6,218 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
 namespace Lovera.Api;
+
 [ApiController]
 [Route("api/auth")]
 public sealed class AuthController(
     AuthService service,
     IConfiguration configuration) : ControllerBase
 {
-    [HttpPost("register"), EnableRateLimiting("auth")]
+    [HttpPost("register")]
+    [EnableRateLimiting("register")]
     public async Task<IActionResult> Register(
-        RegisterRequest request, CancellationToken ct)
+        RegisterRequest request,
+        CancellationToken ct)
     {
         if (!configuration.GetValue(
-                "Auth:AllowPublicRegistration", true))
+                "Auth:AllowPublicRegistration",
+                true))
+        {
             throw new AppProblem(
-                403, "registration_disabled",
+                403,
+                "registration_disabled",
                 "Hệ thống hiện chỉ cho phép tài khoản được cấp sẵn.");
+        }
 
         await service.Register(request, ct);
+
         return Ok(new
         {
-            message = "Đã đăng ký. Hãy kiểm tra email để lấy mã OTP xác thực."
+            message =
+                "Đã đăng ký. Hãy kiểm tra email để lấy mã OTP xác thực."
         });
     }
 
-    [HttpPost("verify"), EnableRateLimiting("auth")]
+    [HttpPost("verify")]
+    [EnableRateLimiting("otp")]
     public async Task<IActionResult> Verify(
-        VerifyRequest request, CancellationToken ct)
+        VerifyRequest request,
+        CancellationToken ct)
     {
         await service.Verify(request, ct);
         return NoContent();
     }
 
-    [HttpPost("resend-verification"), EnableRateLimiting("auth")]
+    [HttpPost("resend-verification")]
+    [EnableRateLimiting("email")]
     public async Task<IActionResult> Resend(
-        EmailRequest request, CancellationToken ct)
+        EmailRequest request,
+        CancellationToken ct)
     {
         await service.Resend(request.Email, ct);
         return Accepted();
     }
 
-    [HttpPost("login"), EnableRateLimiting("auth")]
+    [HttpPost("login")]
+    [EnableRateLimiting("login")]
     public async Task<ActionResult<LoginResponse>> Login(
-        LoginRequest request, CancellationToken ct) =>
+        LoginRequest request,
+        CancellationToken ct) =>
         Ok(await service.Login(request, ct));
 
-    [HttpPost("logout"), Authorize]
+    [HttpPost("logout")]
+    [Authorize]
     public async Task<IActionResult> Logout(CancellationToken ct)
     {
-        var token = Request.Headers.Authorization.ToString()[7..].Trim();
+        var authorization =
+            Request.Headers.Authorization.ToString();
+
+        if (!authorization.StartsWith(
+                "Bearer ",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new AppProblem(
+                401,
+                "unauthorized",
+                "Thiếu access token.");
+        }
+
+        var token =
+            authorization["Bearer ".Length..].Trim();
+
         var session = await service.Authenticate(token, ct)
             ?? throw new AppProblem(
-                401, "unauthorized", "Phiên không hợp lệ.");
+                401,
+                "unauthorized",
+                "Phiên không hợp lệ.");
 
         await service.Logout(session, ct);
+
         return NoContent();
     }
 
-    [HttpPost("forgot-password"), EnableRateLimiting("auth")]
+    [HttpPost("forgot-password")]
+    [EnableRateLimiting("email")]
     public async Task<IActionResult> ForgotPassword(
-        ForgotPasswordRequest request, CancellationToken ct)
+        ForgotPasswordRequest request,
+        CancellationToken ct)
     {
         await service.RequestPasswordReset(request.Email, ct);
+
         return Accepted(new
         {
-            message = "Nếu tài khoản hợp lệ, mã đặt lại mật khẩu đã được gửi tới email."
+            message =
+                "Nếu tài khoản hợp lệ, mã đặt lại mật khẩu đã được gửi tới email."
         });
     }
 
-    [HttpPost("reset-password"), EnableRateLimiting("auth")]
+    [HttpPost("reset-password")]
+    [EnableRateLimiting("otp")]
     public async Task<IActionResult> ResetPassword(
-        ResetPasswordRequest request, CancellationToken ct)
+        ResetPasswordRequest request,
+        CancellationToken ct)
     {
         await service.ResetPassword(request, ct);
+
         return Ok(new
         {
-            message = "Đã đặt mật khẩu mới. Vui lòng đăng nhập lại."
+            message =
+                "Đã đặt mật khẩu mới. Vui lòng đăng nhập lại."
         });
     }
 }
-public sealed record EmailRequest([Required, EmailAddress] string Email);
+
+public sealed record EmailRequest(
+    [Required, EmailAddress] string Email);
+
 [ApiController]
 [Authorize]
 [Route("api/profile")]
-public sealed class ProfileController(AuthService service) : ControllerBase
+public sealed class ProfileController(
+    AuthService service) : ControllerBase
 {
-    private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private Guid UserId =>
+        Guid.Parse(
+            User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
     [HttpGet("me")]
-    public async Task<ActionResult<ProfileResponse>> Get(CancellationToken ct) => Ok(await service.GetProfile(UserId, ct));
+    public async Task<ActionResult<ProfileResponse>> Get(
+        CancellationToken ct) =>
+        Ok(await service.GetProfile(UserId, ct));
+
     [HttpPut("me")]
-    public async Task<ActionResult<ProfileResponse>> Put(UpdateProfileRequest request, CancellationToken ct) => Ok(await service.UpdateProfile(UserId, request, ct));
-    [HttpPut("me/avatar"), Consumes("multipart/form-data"), RequestSizeLimit(5 * 1024 * 1024 + 65536)]
-    public async Task<ActionResult<ProfileResponse>> UploadAvatar(IFormFile file, CancellationToken ct)
+    [EnableRateLimiting("profile-write")]
+    public async Task<ActionResult<ProfileResponse>> Put(
+        UpdateProfileRequest request,
+        CancellationToken ct) =>
+        Ok(await service.UpdateProfile(
+            UserId,
+            request,
+            ct));
+
+    [HttpPut("me/avatar")]
+    [EnableRateLimiting("upload")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(5 * 1024 * 1024 + 65536)]
+    public async Task<ActionResult<ProfileResponse>> UploadAvatar(
+        IFormFile file,
+        CancellationToken ct)
     {
-        if (file is null) throw new AppProblem(400, "invalid_avatar_file", "Cần chọn ảnh avatar.");
-        if (file.Length > 5 * 1024 * 1024) throw new AppProblem(400, "avatar_too_large", "Ảnh avatar không được vượt quá 5MB.");
+        if (file is null)
+        {
+            throw new AppProblem(
+                400,
+                "invalid_avatar_file",
+                "Cần chọn ảnh avatar.");
+        }
+
+        if (file.Length > 5 * 1024 * 1024)
+        {
+            throw new AppProblem(
+                400,
+                "avatar_too_large",
+                "Ảnh avatar không được vượt quá 5MB.");
+        }
+
         await using var stream = file.OpenReadStream();
-        return Ok(await service.UploadAvatar(UserId, stream, ct));
+
+        return Ok(await service.UploadAvatar(
+            UserId,
+            stream,
+            ct));
     }
+
     [HttpGet("me/avatar")]
-    public async Task<IActionResult> GetAvatar(CancellationToken ct)
+    public async Task<IActionResult> GetAvatar(
+        CancellationToken ct)
     {
-        var avatar = await service.ReadAvatar(UserId, ct);
-        Response.Headers["Cache-Control"] = "private, no-store";
-        Response.Headers["X-Content-Type-Options"] = "nosniff";
-        return File(avatar.Bytes, avatar.ContentType);
+        var avatar = await service.ReadAvatar(
+            UserId,
+            ct);
+
+        Response.Headers["Cache-Control"] =
+            "private, max-age=300";
+        Response.Headers["Vary"] =
+            "Authorization";
+        Response.Headers["X-Content-Type-Options"] =
+            "nosniff";
+
+        return File(
+            avatar.Bytes,
+            avatar.ContentType);
     }
     
     [HttpDelete("me")]
+    [EnableRateLimiting("dangerous")]
     public async Task<IActionResult> DeleteMe(
         [FromBody] DeleteAccountRequest request,
         CancellationToken ct)
     {
-        await service.DeleteAccount(UserId, request.Password, ct);
+        await service.DeleteAccount(
+            UserId,
+            request.Password,
+            ct);
+
         return NoContent();
     }
 }

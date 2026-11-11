@@ -2,8 +2,6 @@ using Lovera.Repository;
 using Lovera.Service;
 using Microsoft.EntityFrameworkCore.Storage;
 using Moq;
-using Xunit;
-
 namespace Lovera.Tests;
 
 public sealed class FeatureFlowTests
@@ -107,7 +105,12 @@ public sealed class FeatureFlowTests
         await service.Create(h.SecondUser, "second", null, default);
         Assert.Equal(10, h.Garden.TotalPoints);
         Assert.Single(h.Events, e => e.ActionType == GardenService.MemorySaved);
-        Assert.Equal(2, (await service.Timeline(h.FirstUser, default)).Count);
+        Assert.Equal(
+            2,
+            (await service.Timeline(
+                h.FirstUser,
+                take: 20,
+                ct: default)).Count);
     }
 
     [Fact]
@@ -169,7 +172,7 @@ public sealed class FeatureFlowTests
         public readonly List<LoveMemory> Memories = [];
         public CoupleService Couples { get; }
         public GardenService Gardens { get; }
-        private readonly Dictionary<Guid, ConnectionStatus> statuses = [];
+        private readonly Dictionary<Guid, ConnectionStatus> _statuses = [];
 
         public Harness()
         {
@@ -191,13 +194,24 @@ public sealed class FeatureFlowTests
                 .ReturnsAsync((Guid _, DateTime since, CancellationToken _) => Plans.Count(p => p.CreatedAtUtc >= since));
             Repo.Setup(r => r.Plan(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((Guid id, CancellationToken _) => Plans.SingleOrDefault(p => p.Id == id));
-            Repo.Setup(r => r.Memories(Couple.Id, It.IsAny<int>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync((Guid _, int _, CancellationToken _) => (IReadOnlyList<MemorySummary>)Memories
-                    .OrderByDescending(m => m.CreatedAtUtc)
-                    .Select(m => new MemorySummary(m.Id, m.CoupleId, m.CreatorUserId, m.Text,
-                        m.ImageBytes is not null, m.CreatedAtUtc)).ToArray());
+            Repo.Setup(r => r.Memories(
+                    Couple.Id,
+                    It.IsAny<int>(),
+                    It.IsAny<CancellationToken>()))
+                .ReturnsAsync((Guid _, int take, CancellationToken _) =>
+                    Memories
+                        .OrderByDescending(m => m.CreatedAtUtc)
+                        .Take(take)
+                        .Select(m => new MemorySummary(
+                            m.Id,
+                            m.CoupleId,
+                            m.CreatorUserId,
+                            m.Text,
+                            m.ImageBytes is not null,
+                            m.CreatedAtUtc))
+                        .ToArray());
             Repo.Setup(r => r.Status(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync((Guid id, CancellationToken _) => statuses.GetValueOrDefault(id));
+                .ReturnsAsync((Guid id, CancellationToken _) => _statuses.GetValueOrDefault(id));
             Repo.Setup(r => r.Add(It.IsAny<object>())).Callback<object>(entity =>
             {
                 switch (entity)
@@ -205,7 +219,7 @@ public sealed class FeatureFlowTests
                     case PointEvent point: Events.Add(point); break;
                     case DatePlan plan: Plans.Add(plan); break;
                     case LoveMemory memory: Memories.Add(memory); break;
-                    case ConnectionStatus status: statuses[status.UserId] = status; break;
+                    case ConnectionStatus status: _statuses[status.UserId] = status; break;
                 }
             });
             Repo.Setup(r => r.Remove(It.IsAny<object>())).Callback<object>(entity =>
@@ -213,7 +227,7 @@ public sealed class FeatureFlowTests
                 switch (entity)
                 {
                     case LoveMemory memory: Memories.Remove(memory); break;
-                    case ConnectionStatus status: statuses.Remove(status.UserId); break;
+                    case ConnectionStatus status: _statuses.Remove(status.UserId); break;
                 }
             });
             Repo.Setup(r => r.Save(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
