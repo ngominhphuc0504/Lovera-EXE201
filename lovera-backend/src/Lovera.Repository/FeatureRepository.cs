@@ -37,7 +37,7 @@ public sealed class FeatureRepository(LoveraDbContext db) : IFeatureRepository
     public Task<UserAccount?> User(Guid id, CancellationToken ct) => db.Users.SingleOrDefaultAsync(x => x.Id == id, ct);
 
     public Task<Couple?> ActiveCouple(Guid userId, CancellationToken ct) =>
-        db.Couples.Include(c => c.Members)
+        db.Couples.Include(c => c.Members).ThenInclude(m => m.User)
             .SingleOrDefaultAsync(c => c.EndedAtUtc == null &&
                 c.Members.Any(m => m.UserId == userId && m.LeftAtUtc == null), ct);
 

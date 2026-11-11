@@ -25,6 +25,11 @@ import {
 import { MemoryItem, MemoryTag, CoupleData, Partner } from '../../types';
 import { playSound, formatVNDate, calculateTotalDays } from '../../utils/audio';
 import { compressImageFile } from '../../utils/syncManager';
+import { memoryService } from '../../services/memoryService';
+import { MemoryPhoto } from '../common/MemoryPhoto';
+
+const MAX_BACKEND_IMAGE_BYTES = 5 * 1024 * 1024;
+const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 const PRESET_PHOTOS = [
   {
@@ -76,9 +81,13 @@ const TAG_COLORS: Record<MemoryTag, string> = {
 interface SharedSpaceScreenProps {
   couple: CoupleData;
   memories: MemoryItem[];
-  onAddMemory: (memory: Omit<MemoryItem, 'id' | 'likes' | 'createdAt'>) => void;
+  isBackendMode?: boolean;
+  isLoadingMemories?: boolean;
+  memoriesError?: string;
+  onRetryLoadMemories?: () => void;
+  onAddMemory: (memory: Omit<MemoryItem, 'id' | 'likes' | 'createdAt'>, imageFile?: File) => Promise<void> | void;
   onEditMemory: (id: string, updated: Partial<MemoryItem>) => void;
-  onDeleteMemory: (id: string) => void;
+  onDeleteMemory: (id: string) => Promise<void> | void;
   onLikeMemory: (id: string) => void;
   onNavigateToHome?: () => void;
 }
@@ -86,6 +95,10 @@ interface SharedSpaceScreenProps {
 export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   couple,
   memories,
+  isBackendMode = false,
+  isLoadingMemories = false,
+  memoriesError = '',
+  onRetryLoadMemories,
   onAddMemory,
   onEditMemory,
   onDeleteMemory,
@@ -115,6 +128,11 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   const [newLocation, setNewLocation] = useState<string>('');
   const [newTag, setNewTag] = useState<MemoryTag>('Hẹn hò');
   const [customFilePreview, setCustomFilePreview] = useState<string>('');
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
+  const [submissionError, setSubmissionError] = useState('');
+  const [isSubmittingMemory, setIsSubmittingMemory] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeletingMemory, setIsDeletingMemory] = useState(false);
 
   // Edit form state
   const [editCaption, setEditCaption] = useState<string>('');
@@ -128,24 +146,50 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
 
   const [isCompressing, setIsCompressing] = useState(false);
 
+  const fileFromUrl = async (url: string): Promise<File> => {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Không thể tải ảnh mẫu. Vui lòng chọn ảnh từ thiết bị.');
+    const blob = await response.blob();
+    if (!SUPPORTED_IMAGE_TYPES.includes(blob.type)) {
+      throw new Error('Ảnh phải có định dạng PNG, JPEG hoặc WebP.');
+    }
+    return new File([blob], `lovera-memory-${Date.now()}`, { type: blob.type });
+  };
+
   // Handle local file upload with auto compression (prevents storage quota issues)
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setSubmissionError('');
+    if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
+      setSubmissionError('Ảnh phải có định dạng PNG, JPEG hoặc WebP.');
+      e.target.value = '';
+      return;
+    }
     if (file.size > 20 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 20MB.');
+      setSubmissionError('Kích thước ảnh tối đa là 20MB.');
+      e.target.value = '';
       return;
     }
 
     try {
       setIsCompressing(true);
+      setSelectedImageFile(file);
       const compressedDataUrl = await compressImageFile(file, 1080, 0.82);
+      const compressedBlob = await fetch(compressedDataUrl).then(response => response.blob());
+      const compressedFile = new File([compressedBlob], `lovera-memory-${Date.now()}.jpg`, {
+        type: compressedBlob.type || 'image/jpeg',
+      });
+      setSelectedImageFile(compressedFile);
       setCustomFilePreview(compressedDataUrl);
       setNewImageUrl(compressedDataUrl);
+      if (compressedFile.size > MAX_BACKEND_IMAGE_BYTES) {
+        setSubmissionError('Ảnh sau khi tối ưu vẫn vượt quá giới hạn 5MB của máy chủ.');
+      }
       playSound('chime');
     } catch (err) {
-      console.warn('[SharedSpace] Compression fallback to FileReader:', err);
+      console.warn('[SharedSpace] Image compression failed:', err);
       const reader = new FileReader();
       reader.onload = (event) => {
         const dataUrl = event.target?.result as string;
@@ -163,6 +207,8 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   const handleOpenAddModal = (preset?: typeof PRESET_PHOTOS[0]) => {
     playSound('click');
     setCustomFilePreview('');
+    setSelectedImageFile(null);
+    setSubmissionError('');
     if (preset) {
       setNewImageUrl(preset.url);
       setNewCaption(preset.caption);
@@ -178,26 +224,48 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   };
 
   // Submit Add Memory
-  const handleSubmitAddMemory = (e: React.FormEvent) => {
+  const handleSubmitAddMemory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newImageUrl) {
-      alert('Vui lòng chọn hoặc tải lên một bức ảnh kỷ niệm.');
+    if (!newImageUrl || isSubmittingMemory || isCompressing) {
       return;
     }
 
-    onAddMemory({
-      imageUrl: newImageUrl,
-      caption: newCaption.trim() || 'Một khoảnh khắc đáng nhớ của hai đứa.',
-      date: newDate,
-      location: newLocation.trim() || 'Nơi hẹn hò thân quen',
-      tag: newTag,
-      authorName: userA.name,
-      authorAvatar: userA.avatar,
-    });
+    setIsSubmittingMemory(true);
+    setSubmissionError('');
+    try {
+      let uploadFile = selectedImageFile;
+      if (isBackendMode) {
+        uploadFile ??= await fileFromUrl(newImageUrl);
+        if (!SUPPORTED_IMAGE_TYPES.includes(uploadFile.type)) {
+          throw new Error('Ảnh phải có định dạng PNG, JPEG hoặc WebP.');
+        }
+        if (uploadFile.size > MAX_BACKEND_IMAGE_BYTES) {
+          throw new Error('Kích thước ảnh sau khi tối ưu không được vượt quá 5MB.');
+        }
+      }
 
-    setIsAddModalOpen(false);
-    playSound('success');
-    showToast('Đã lưu kỷ niệm vào Không gian chung! (+10 Love Points 🌱)');
+      await onAddMemory({
+        imageUrl: newImageUrl,
+        caption: newCaption.trim() || 'Một khoảnh khắc đáng nhớ của hai đứa.',
+        date: newDate,
+        location: newLocation.trim() || 'Nơi hẹn hò thân quen',
+        tag: newTag,
+        authorName: userA.name,
+        authorAvatar: userA.avatar,
+      }, uploadFile || undefined);
+
+      setIsAddModalOpen(false);
+      setSelectedImageFile(null);
+      playSound('success');
+      showToast(isBackendMode
+        ? 'Đã lưu kỷ niệm vào Không gian chung!'
+        : 'Đã lưu kỷ niệm vào Không gian chung! (+10 Love Points 🌱)');
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : 'Không thể lưu kỷ niệm. Vui lòng thử lại.');
+      playSound('error');
+    } finally {
+      setIsSubmittingMemory(false);
+    }
   };
 
   // Open Edit Modal
@@ -227,15 +295,29 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   };
 
   // Confirm Delete
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deletingMemoryId) return;
-    onDeleteMemory(deletingMemoryId);
-    setDeletingMemoryId(null);
-    if (selectedMemory && selectedMemory.id === deletingMemoryId) {
-      setSelectedMemory(null);
+    const target = memories.find(m => m.id === deletingMemoryId);
+    if (isBackendMode && target && target.isMyMemory === false) {
+      setDeleteError(`Chỉ người đăng (${target.authorName}) mới có quyền xóa ảnh này.`);
+      return;
     }
-    playSound('click');
-    showToast('Đã xóa kỷ niệm khỏi Không gian chung.');
+    setIsDeletingMemory(true);
+    setDeleteError('');
+    try {
+      await onDeleteMemory(deletingMemoryId);
+      setDeletingMemoryId(null);
+      if (selectedMemory && selectedMemory.id === deletingMemoryId) {
+        setSelectedMemory(null);
+      }
+      playSound('click');
+      showToast('Đã xóa kỷ niệm khỏi Không gian chung.');
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Không thể xóa kỷ niệm. Vui lòng thử lại.');
+      playSound('error');
+    } finally {
+      setIsDeletingMemory(false);
+    }
   };
 
   // Filter memories
@@ -248,7 +330,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
     return matchesTag && matchesSearch;
   });
 
-  const totalLikes = memories.reduce((acc, m) => acc + m.likes, 0);
+  const totalLikes = memories.reduce((acc, m) => acc + (m.likes || 0), 0);
 
   return (
     <div className="space-y-4 pb-28 pt-2 text-stone-800 select-none">
@@ -288,7 +370,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
           </div>
           <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-2">
             <span className="block text-[10px] text-rose-100">Lượt yêu thích</span>
-            <strong className="text-base font-bold text-white">{totalLikes} ❤️</strong>
+            <strong className="text-base font-bold text-white">{totalLikes}</strong>
           </div>
           <div className="bg-white/15 backdrop-blur-xs rounded-2xl p-2">
             <span className="block text-[10px] text-rose-100">Bên nhau</span>
@@ -305,6 +387,19 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
         </div>
       )}
 
+      {memoriesError && isBackendMode && (
+        <div className="mx-4 p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-2xl flex items-center justify-between gap-3">
+          <span>{memoriesError}</span>
+          <button
+            type="button"
+            onClick={onRetryLoadMemories}
+            className="shrink-0 font-bold text-rose-700 underline"
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
       {/* ------------------------------------------------------------- */}
       {/* 2. ACTION CONTROLS & SEARCH                                   */}
       {/* ------------------------------------------------------------- */}
@@ -316,7 +411,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
             className="flex-1 min-h-[44px] py-2.5 px-4 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />
-            <span>Thêm Kỷ Niệm Mới (+10 Pts)</span>
+            <span>{isBackendMode ? 'Thêm Kỷ Niệm Mới' : 'Thêm Kỷ Niệm Mới (+10 Pts)'}</span>
           </button>
 
           {/* View Mode Toggle */}
@@ -391,7 +486,18 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
       {/* ------------------------------------------------------------- */}
       {/* 3. MEMORIES DISPLAY (GRID OR TIMELINE)                        */}
       {/* ------------------------------------------------------------- */}
-      {filteredMemories.length === 0 ? (
+      {isBackendMode && isLoadingMemories && memories.length === 0 ? (
+        <div className="mx-4 py-12 px-6 bg-white/90 rounded-3xl border border-stone-200 text-center space-y-3 shadow-2xs">
+          <div className="w-14 h-14 rounded-3xl bg-rose-50 text-rose-500 mx-auto flex items-center justify-center">
+            <ImageIcon className="w-7 h-7 animate-pulse" />
+          </div>
+          <p className="text-xs text-stone-500">Đang tải kỷ niệm của hai bạn...</p>
+        </div>
+      ) : isBackendMode && memoriesError && memories.length === 0 ? (
+        <div className="mx-4 py-8 px-6 bg-white/90 rounded-3xl border border-stone-200 text-center text-xs text-stone-500 shadow-2xs">
+          Chưa thể xác định danh sách kỷ niệm. Hãy thử tải lại.
+        </div>
+      ) : filteredMemories.length === 0 ? (
         /* Empty State */
         <div className="mx-4 py-12 px-6 bg-white/90 rounded-3xl border border-stone-200 text-center space-y-3 shadow-2xs">
           <div className="w-14 h-14 rounded-3xl bg-rose-50 text-rose-500 mx-auto flex items-center justify-center">
@@ -427,10 +533,12 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
             >
               {/* Photo Image Container */}
               <div className="relative aspect-square w-full overflow-hidden bg-stone-100">
-                <img
-                  src={mem.imageUrl}
+                <MemoryPhoto
+                  memoryId={mem.id}
+                  imageUrl={mem.imageUrl}
                   alt={mem.caption}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  isBackendMode={isBackendMode}
                   loading="lazy"
                 />
 
@@ -537,10 +645,12 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
 
                 {/* Photo */}
                 <div className="rounded-2xl overflow-hidden aspect-[4/3] bg-stone-100 relative">
-                  <img
-                    src={mem.imageUrl}
+                  <MemoryPhoto
+                    memoryId={mem.id}
+                    imageUrl={mem.imageUrl}
                     alt={mem.caption}
                     className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300"
+                    isBackendMode={isBackendMode}
                   />
                 </div>
 
@@ -566,26 +676,31 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                   </button>
 
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenEdit(mem);
-                      }}
-                      className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors"
-                      title="Sửa ghi chú"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setDeletingMemoryId(mem.id);
-                      }}
-                      className="p-1.5 rounded-xl hover:bg-rose-50 text-stone-400 hover:text-rose-600 transition-colors"
-                      title="Xóa ảnh kỷ niệm"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {!isBackendMode && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenEdit(mem);
+                        }}
+                        className="p-1.5 rounded-xl hover:bg-stone-100 text-stone-400 hover:text-stone-700 transition-colors"
+                        title="Sửa ghi chú"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {(!isBackendMode || mem.isMyMemory) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteError('');
+                          setDeletingMemoryId(mem.id);
+                        }}
+                        className="p-1.5 rounded-xl hover:bg-rose-50 text-stone-400 hover:text-rose-600 transition-colors"
+                        title="Xóa ảnh kỷ niệm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -677,6 +792,8 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                         onClick={() => {
                           playSound('click');
                           setNewImageUrl(preset.url);
+                          setSelectedImageFile(null);
+                          setSubmissionError('');
                           if (!newCaption) setNewCaption(preset.caption);
                           setNewTag(preset.tag);
                         }}
@@ -757,14 +874,31 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 </select>
               </div>
 
+              {isBackendMode && (
+                <p className="text-[10px] text-stone-500 leading-relaxed">
+                  Máy chủ hiện lưu ảnh, lời nhắn và ngày đăng. Địa điểm, ngày chụp và chủ đề chỉ lưu trong Demo.
+                </p>
+              )}
+
               {/* Submit CTA */}
+              {submissionError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-[11px] rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{submissionError}</span>
+                </div>
+              )}
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 px-4 bg-gradient-to-r from-rose-500 via-pink-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2"
+                  disabled={isCompressing || isSubmittingMemory}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-rose-500 via-pink-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>Lưu Kỷ Niệm (+10 Love Points 🌱)</span>
+                  <span>
+                    {isSubmittingMemory
+                      ? 'Đang lưu kỷ niệm...'
+                      : isBackendMode ? 'Lưu Kỷ Niệm' : 'Lưu Kỷ Niệm (+10 Love Points 🌱)'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -780,10 +914,13 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
           <div className="bg-white rounded-3xl max-w-sm w-full max-h-[92vh] overflow-hidden flex flex-col shadow-2xl animate-scale-in">
             {/* Top action bar on photo */}
             <div className="relative aspect-[4/3] w-full bg-stone-900">
-              <img
-                src={selectedMemory.imageUrl}
+              <MemoryPhoto
+                memoryId={selectedMemory.id}
+                imageUrl={selectedMemory.imageUrl}
                 alt={selectedMemory.caption}
                 className="w-full h-full object-contain"
+                isBackendMode={isBackendMode}
+                loading="eager"
               />
               <button
                 onClick={() => setSelectedMemory(null)}
@@ -828,16 +965,16 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                     onLikeMemory(selectedMemory.id);
                     setSelectedMemory(prev => prev ? {
                       ...prev,
-                      likes: prev.isLiked ? prev.likes - 1 : prev.likes + 1,
+                      likes: prev.isLiked ? Math.max(0, prev.likes - 1) : prev.likes + 1,
                       isLiked: !prev.isLiked
                     } : null);
                   }}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold transition-transform active:scale-95 ${
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-transform active:scale-95 cursor-pointer ${
                     selectedMemory.isLiked ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-stone-100 text-stone-600 hover:bg-rose-50'
                   }`}
                 >
                   <Heart className={`w-3.5 h-3.5 ${selectedMemory.isLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
-                  <span>{selectedMemory.likes}</span>
+                  <span>{selectedMemory.likes} Yêu thích</span>
                 </button>
               </div>
 
@@ -849,24 +986,23 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
               </div>
 
               {/* Management Actions */}
-              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-stone-100">
-                <button
-                  onClick={() => handleOpenEdit(selectedMemory)}
-                  className="py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Edit3 className="w-3.5 h-3.5" />
-                  <span>Sửa ghi chú</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setDeletingMemoryId(selectedMemory.id);
-                  }}
-                  className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Xóa ảnh</span>
-                </button>
+              <div className="pt-1 border-t border-stone-100">
+                {!isBackendMode || selectedMemory.isMyMemory ? (
+                  <button
+                    onClick={() => {
+                      setDeleteError('');
+                      setDeletingMemoryId(selectedMemory.id);
+                    }}
+                    className="w-full py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Xóa ảnh kỷ niệm này</span>
+                  </button>
+                ) : (
+                  <div className="py-2 px-3 bg-stone-50 text-stone-400 rounded-xl text-[11px] text-center font-medium">
+                    Chỉ người đăng ({selectedMemory.authorName}) mới có quyền xóa ảnh này
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -971,18 +1107,29 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 Ảnh sẽ được gỡ khỏi Không gian chung của hai bạn. Hành động này không thể hoàn tác.
               </p>
             </div>
+            {deleteError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-[11px] rounded-xl flex items-center gap-2 text-left">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{deleteError}</span>
+              </div>
+            )}
             <div className="flex gap-2 pt-1">
               <button
-                onClick={() => setDeletingMemoryId(null)}
+                disabled={isDeletingMemory}
+                onClick={() => {
+                  setDeleteError('');
+                  setDeletingMemoryId(null);
+                }}
                 className="flex-1 py-2 px-3 bg-stone-100 text-stone-700 font-medium rounded-xl text-xs"
               >
                 Giữ lại
               </button>
               <button
+                disabled={isDeletingMemory}
                 onClick={handleConfirmDelete}
-                className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs"
+                className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs disabled:opacity-60"
               >
-                Xác nhận Xóa
+                {isDeletingMemory ? 'Đang xóa...' : 'Xác nhận Xóa'}
               </button>
             </div>
           </div>

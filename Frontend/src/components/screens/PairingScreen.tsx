@@ -23,6 +23,7 @@ import {
 import { playSound } from '../../utils/audio';
 import { Partner } from '../../types';
 import { coupleService } from '../../services/coupleService';
+import { isValidDisplayAvatar, findKnownUserById } from '../../utils/userDirectory';
 
 export type PairingStage = 
   | 'idle'                // 1. Chưa kết nối: Chọn Tạo mã hoặc Nhập mã
@@ -37,7 +38,7 @@ interface PairingScreenProps {
   initialStage?: PairingStage;
   currentUser?: Partner;
   bannerMessage?: string;
-  onPairSuccess: (partner: { name: string; email: string; avatar: string } | string) => void;
+  onPairSuccess: (partner: { id?: string; name: string; email: string; avatar: string } | string) => void;
   onBackToAuth?: () => void;
   onOpenProfile?: () => void;
 }
@@ -61,6 +62,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   const [error, setError] = useState<string>('');
   const [showBanner, setShowBanner] = useState<boolean>(Boolean(bannerMessage));
   const [isGeneratingCode, setIsGeneratingCode] = useState<boolean>(false);
+  const [isApiSynced, setIsApiSynced] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Sync stage if initialStage prop changes
@@ -84,7 +86,31 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
     }
   }, [bannerMessage]);
 
+  // Auto check on mount: If account is already paired in backend, skip to home directly
+  useEffect(() => {
+    let isMounted = true;
+    void (async () => {
+      try {
+        const res = await coupleService.getStatus();
+        if (res.isPaired && res.couple?.isActive && isMounted) {
+          const p = extractPartner(res.couple);
+          onPairSuccess(p || {
+            id: 'usr_partner',
+            name: 'Người Thương',
+            email: '',
+            avatar: partnerCandidate.avatar,
+          });
+        }
+      } catch {}
+    })();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+
   const [partnerCandidate, setPartnerCandidate] = useState<{
+    id?: string;
     name: string;
     email: string;
     avatar: string;
@@ -93,6 +119,39 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
     email: 'sam@lovera.app',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
   });
+
+  // Safe partner extractor (handles backend response with or without partner object)
+  const extractPartner = (coupleObj?: any) => {
+    if (!coupleObj) return null;
+    const partnerObj = coupleObj.partner || coupleObj.Partner;
+    if (partnerObj) {
+      const partnerAvatar =
+        (isValidDisplayAvatar(partnerObj.avatarUrl) ? partnerObj.avatarUrl : '') ||
+        (isValidDisplayAvatar(partnerObj.avatar) ? partnerObj.avatar : '') ||
+        partnerCandidate.avatar;
+
+      return {
+        id: partnerObj.userId || partnerObj.id || 'usr_partner',
+        name: partnerObj.displayName || partnerObj.name || (partnerCandidate.name !== 'Sam' ? partnerCandidate.name : 'Người Thương'),
+        email: partnerObj.email || '',
+        avatar: partnerAvatar,
+      };
+    }
+    const otherId = coupleObj.userIds?.find((id: string) => id?.toLowerCase() !== currentUser?.id?.toLowerCase()) || 'usr_partner';
+    const known = findKnownUserById(otherId);
+    const savedName =
+      (otherId ? localStorage.getItem(`lovera_partner_name_${otherId.toLowerCase()}`) : null) ||
+      (coupleObj.coupleId ? localStorage.getItem(`lovera_partner_name_${coupleObj.coupleId}`) : null) ||
+      (localStorage.getItem('lovera_partner_nickname') && localStorage.getItem('lovera_partner_nickname') !== 'Người Thương' ? localStorage.getItem('lovera_partner_nickname') : null);
+
+    return {
+      id: otherId,
+      name: savedName || known?.name || (partnerCandidate.name !== 'Sam' ? partnerCandidate.name : 'Người Thương'),
+      email: known?.email || '',
+      avatar: known?.avatar || partnerCandidate.avatar,
+    };
+  };
+
 
   // Handle generating a real pairing code from backend
   const handleRegenerateCode = async () => {
@@ -103,21 +162,41 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
       const res = await coupleService.createPairingCode();
       if (res?.code) {
         setCurrentCode(res.code.toUpperCase());
+        setIsApiSynced(true);
         return;
       }
     } catch (err: any) {
-      console.warn('[PairingScreen] Real createPairingCode failed, falling back to local:', err);
+      setIsApiSynced(false);
+      console.warn('[PairingScreen] Real createPairingCode failed:', err);
+      if (err?.code === 'already_paired' || err?.message?.includes('đã ghép đôi')) {
+        try {
+          const statusRes = await coupleService.getStatus();
+          if (statusRes.isPaired && statusRes.couple?.isActive) {
+            const p = extractPartner(statusRes.couple);
+            onPairSuccess(p || {
+              id: 'usr_partner',
+              name: 'Người Thương',
+              email: '',
+              avatar: partnerCandidate.avatar,
+            });
+            return;
+          }
+        } catch {}
+      }
+      setError(err?.message || 'Không thể tạo mã ghép đôi từ máy chủ. Vui lòng thử lại.');
+      return;
     } finally {
       setIsGeneratingCode(false);
     }
 
-    // Fallback if not authenticated or offline (12-char hex matching backend)
+    // Only fallback if not authenticated
     const chars = '0123456789ABCDEF';
     let newCode = '';
     for (let i = 0; i < 12; i++) {
       newCode += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     setCurrentCode(newCode);
+    setIsApiSynced(false);
   };
 
   // When transitioning to 'create' stage, auto generate code from API
@@ -133,7 +212,9 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
     const interval = setInterval(async () => {
       try {
         const res = await coupleService.getStatus();
-        if (res.isPaired) {
+        if (res.isPaired && res.couple?.isActive) {
+          const p = extractPartner(res.couple);
+          if (p) setPartnerCandidate(p);
           playSound('success');
           setStage('success');
           clearInterval(interval);
@@ -182,8 +263,14 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
       return;
     }
 
-    if (formatted.length !== 12 && formatted.length !== 6) {
-      setError(`Mã ghép đôi yêu cầu đủ 12 ký tự (hoặc 6 ký tự). Bạn mới nhập ${formatted.length} ký tự.`);
+        if (formatted.length !== 12 && formatted.length !== 6) {
+      setError('Mã ghép đôi yêu cầu đủ 12 ký tự (hoặc 6 ký tự). Bạn mới nhập ' + formatted.length + ' ký tự.');
+      playSound('error');
+      return;
+    }
+
+    if (currentCode && formatted === currentCode) {
+      setError('Bạn đang nhập mã do chính tài khoản này tạo ra! Để ghép đôi, vui lòng mở cửa sổ ẩn danh (Ctrl + Shift + N) đăng nhập tài khoản thứ hai rồi nhập mã này nhé.');
       playSound('error');
       return;
     }
@@ -193,7 +280,11 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
 
     try {
       // Call Real Backend API: POST /api/couples/join
-      await coupleService.joinCouple(formatted);
+      const coupleRes = await coupleService.joinCouple(formatted);
+      const p = extractPartner(coupleRes);
+      if (p) {
+        setPartnerCandidate(p);
+      }
       setIsSubmitting(false);
       playSound('success');
       setStage('success');
@@ -220,6 +311,7 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   // Final confirmation to enter Home
   const handleEnterHome = () => {
     onPairSuccess({
+      id: partnerCandidate.id,
       name: partnerCandidate.name,
       email: partnerCandidate.email,
       avatar: partnerCandidate.avatar
@@ -308,6 +400,10 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
               <img
                 src={currentUser.avatar}
                 alt={currentUser.name}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
+                }}
                 className="w-7 h-7 rounded-full object-cover ring-2 ring-rose-300"
               />
               <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border border-white rounded-full"></span>
@@ -432,8 +528,17 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
           <div className="bg-white rounded-3xl p-5 sm:p-6 border border-rose-200/90 shadow-sm text-center space-y-3.5">
             <div className="flex items-center justify-center gap-1.5 text-[10px] font-bold text-stone-400 uppercase tracking-widest">
               <span>Mã bảo mật {currentCode.length} ký tự</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span className="text-emerald-600 font-semibold lowercase">đã đồng bộ api</span>
+              {isApiSynced ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span className="text-emerald-600 font-semibold lowercase">đã đồng bộ api</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span className="text-amber-600 font-semibold lowercase">chưa đồng bộ</span>
+                </>
+              )}
             </div>
 
             {/* Prominent Monospace Characters (Flexible 12 or 6 chars) */}
@@ -731,6 +836,10 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
                 <img
                   src={partnerCandidate.avatar}
                   alt={partnerCandidate.name}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250';
+                  }}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -791,6 +900,10 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
                 <img
                   src={currentUser?.avatar || "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80"}
                   alt={currentUser?.name || "Bạn"}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80";
+                  }}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -801,6 +914,10 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
                 <img
                   src={partnerCandidate.avatar}
                   alt={partnerCandidate.name}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250';
+                  }}
                   className="w-full h-full object-cover"
                 />
               </div>

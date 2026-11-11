@@ -8,7 +8,7 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {
@@ -16,9 +16,9 @@ export default defineConfig(() => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
         '/api': {
-          target: 'https://lovera-exe201.onrender.com',
+          target: process.env.VITE_BACKEND_TARGET || 'https://lovera-exe201.onrender.com',
           changeOrigin: true,
-          secure: true,
+          secure: false,
         },
       },
     },

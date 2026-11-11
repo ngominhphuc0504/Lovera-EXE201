@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CoupleData } from '../../types';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
+import { compressImageFile } from '../../utils/syncManager';
 
 interface ProfileScreenProps {
   couple: CoupleData;
@@ -29,7 +30,7 @@ interface ProfileScreenProps {
   onResetDemoFlow: (screen: 'welcome' | 'login' | 'register' | 'pairing' | 'splash' | 'onboarding') => void;
   onNavigateToPairing?: () => void;
   onUpdateUserName?: (newName: string) => void;
-  onUpdateAvatar?: (newAvatarUrl: string) => void;
+  onUpdateAvatar?: (newAvatarUrl: string, file?: File) => void;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -53,31 +54,34 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [showUnpairConfirm, setShowUnpairConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 5MB theo tiêu chuẩn hệ thống.');
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Kích thước ảnh tối đa là 15MB.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) {
-        try {
-          localStorage.setItem('lovera_alex_avatar', base64);
-        } catch (err) {
-          console.warn('LocalStorage error:', err);
+    try {
+      const compressed = await compressImageFile(file, 300, 0.85);
+      onUpdateAvatar?.(compressed, file);
+      playSound('success');
+      setSavedToast('Đã đổi và đồng bộ avatar thành công!');
+      setTimeout(() => setSavedToast(''), 2500);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        if (base64) {
+          onUpdateAvatar?.(base64, file);
+          playSound('success');
+          setSavedToast('Đã đổi và đồng bộ avatar thành công!');
+          setTimeout(() => setSavedToast(''), 2500);
         }
-        onUpdateAvatar?.(base64);
-        playSound('success');
-        setSavedToast('Đã đổi và đồng bộ avatar thành công!');
-        setTimeout(() => setSavedToast(''), 2500);
-      }
-    };
-    reader.readAsDataURL(file);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSaveNicknames = () => {
@@ -152,7 +156,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               title="Nhấn để đổi ảnh đại diện của Alex"
             >
               <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm ring-2 ring-white/30 group-hover:scale-105 transition-transform">
-                <img src={userA.avatar} alt={userA.name} className="w-full h-full object-cover" />
+                <img
+                  src={userA.avatar}
+                  alt={userA.name}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
+                  }}
+                  className="w-full h-full object-cover"
+                />
               </div>
               <button
                 type="button"
@@ -173,7 +185,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm">
-              <img src={userB.avatar} alt={userB.name} className="w-full h-full object-cover" />
+              <img
+                src={userB.avatar}
+                alt={userB.name}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250';
+                }}
+                className="w-full h-full object-cover"
+              />
             </div>
           </div>
 

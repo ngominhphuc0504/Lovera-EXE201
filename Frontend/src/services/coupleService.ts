@@ -12,12 +12,21 @@ export interface CoupleMemberInfo {
   email?: string;
 }
 
+export interface CoupleResponseMember {
+  userId: string;
+  displayName: string;
+  email: string;
+  avatarUrl?: string | null;
+}
+
 export interface CoupleResponse {
   coupleId: string;
   userIds: string[];
   createdAtUtc: string;
   startDate?: string | null;
   isActive: boolean;
+  members: CoupleResponseMember[];
+  partner: CoupleResponseMember;
 }
 
 export interface PairingStatusResponse {

@@ -16,6 +16,8 @@ import {
 import { CoupleData, MemoryItem } from '../../types';
 import { INITIAL_ACTIVITY_OPTIONS, INITIAL_STATUS_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
+import { compressImageFile } from '../../utils/syncManager';
+import { MemoryPhoto } from '../common/MemoryPhoto';
 
 const getStatusLabel = (status: CoupleData['userA']['status']) =>
   INITIAL_STATUS_OPTIONS.find(option => option.type === status)?.label ?? status;
@@ -26,8 +28,11 @@ const getActivityLabel = (activity?: CoupleData['userA']['activity']) =>
     : 'Chưa chọn hoạt động';
 
 interface HomeScreenProps {
+  onUpdatePartnerNickname?: (newName: string) => void;
   couple: CoupleData;
   recentMemories?: MemoryItem[];
+  isBackendMode?: boolean;
+  isLoadingMemories?: boolean;
   onOpenStatusModal: () => void;
   onOpenLoveDayModal: () => void;
   onSendLovePing?: () => void;
@@ -35,12 +40,15 @@ interface HomeScreenProps {
   onNavigateToPairing?: () => void;
   onNavigateToProfile?: () => void;
   onNavigateToShared?: () => void;
-  onUpdateAvatar?: (newAvatarUrl: string) => void;
+  onUpdateAvatar?: (newAvatarUrl: string, file?: File) => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
+  onUpdatePartnerNickname,
   couple,
   recentMemories = [],
+  isBackendMode = false,
+  isLoadingMemories = false,
   onOpenStatusModal,
   onOpenLoveDayModal,
   onSendLovePing,
@@ -53,29 +61,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { userA, userB, startDate } = couple;
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 5MB theo tiêu chuẩn hệ thống.');
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Kích thước ảnh tối đa là 15MB theo tiêu chuẩn hệ thống.');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      if (base64) {
-        try {
-          localStorage.setItem('lovera_alex_avatar', base64);
-        } catch (err) {
-          console.warn('LocalStorage error:', err);
+    try {
+      const compressed = await compressImageFile(file, 300, 0.85);
+      onUpdateAvatar?.(compressed, file);
+      playSound('success');
+    } catch {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        if (base64) {
+          onUpdateAvatar?.(base64, file);
+          playSound('success');
         }
-        onUpdateAvatar?.(base64);
-        playSound('success');
-      }
-    };
-    reader.readAsDataURL(file);
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   // Nếu chưa ghép đôi, ẩn hoàn toàn ảnh người thứ hai và các chức năng cặp đôi
@@ -98,7 +107,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             title="Nhấn để đổi ảnh đại diện của bạn"
           >
             <div className="w-20 h-20 rounded-full overflow-hidden border-3 border-white shadow-md mx-auto ring-2 ring-rose-300 group-hover:scale-105 transition-transform">
-              <img src={userA.avatar} alt={userA.name} className="w-full h-full object-cover" />
+              <img
+                src={userA.avatar}
+                alt={userA.name}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
+                }}
+                className="w-full h-full object-cover"
+              />
             </div>
             <button
               type="button"
@@ -185,7 +202,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <div className="flex items-center justify-between gap-1.5 sm:gap-3">
           
           {/* Partner 1: User A */}
-          <div className="flex items-center gap-2 min-w-0 max-w-[130px] sm:max-w-[145px]">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <div 
               onClick={() => fileInputRef.current?.click()}
               className="relative cursor-pointer group select-none shrink-0"
@@ -195,6 +212,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <img
                   src={userA.avatar}
                   alt={userA.name}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80';
+                  }}
                   className="w-full h-full object-cover"
                 />
               </div>
@@ -216,16 +237,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </span>
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1">
-                <h3 className="font-bold text-xs text-stone-900 leading-tight truncate">{userA.name}</h3>
+              <div className="flex flex-wrap items-center gap-1">
                 <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                   Online
                 </span>
+                <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userA.name}</h3>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-center gap-1 mt-0.5 font-normal truncate">
-                <Smile className="w-2.5 h-2.5 text-rose-400 shrink-0" />
-                <span className="truncate">{getStatusLabel(userA.status)}</span>
+              <p className="text-[10px] text-stone-500 flex items-start gap-0.5 mt-0.5 font-normal whitespace-normal" title={`${getStatusLabel(userA.status)}${userA.activity ? ' · ' + getActivityLabel(userA.activity) : ''}`}>
+                <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />
+                <span className="[overflow-wrap:anywhere]">{getStatusLabel(userA.status)}{userA.activity ? ` · ${getActivityLabel(userA.activity)}` : ` · ${getActivityLabel()}`}</span>
               </p>
             </div>
           </div>
@@ -238,27 +259,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
           </div>
 
-          {/* Partner 2: User B */}
-          <div className="flex items-center gap-2 min-w-0 max-w-[130px] sm:max-w-[145px] flex-row-reverse text-right">
+          {/* Partner 2: User B (Display-only: each user uploads their own photo) */}
+          <div className="flex items-center gap-2 min-w-0 flex-1 flex-row-reverse text-left">
             <div className="relative shrink-0">
-              <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs">
+              <div
+                className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs"
+                title={userB.name}
+              >
                 <img
                   src={userB.avatar}
                   alt={userB.name}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250';
+                  }}
                   className="w-full h-full object-cover"
                 />
               </div>
               {userB.isOnline ? (
-                <span className="absolute bottom-0 right-0 flex h-3 w-3">
+                <span className="absolute bottom-0 right-0 flex h-3 w-3 pointer-events-none">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border-2 border-white"></span>
                 </span>
               ) : (
-                <span className="absolute bottom-0 right-0 w-3 h-3 bg-stone-300 border-2 border-white rounded-full"></span>
+                <span className="absolute bottom-0 right-0 w-3 h-3 bg-stone-300 border-2 border-white rounded-full pointer-events-none"></span>
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-end gap-1">
+              <div className="flex flex-wrap items-center justify-start gap-1">
                 {userB.isOnline ? (
                   <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -269,11 +297,28 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {getStatusLabel(userB.status)}
                   </span>
                 )}
-                <h3 className="font-bold text-xs text-stone-900 leading-tight truncate">{userB.name}</h3>
+                <div className="flex items-center gap-1 min-w-0">
+                  <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userB.name}</h3>
+                  {onUpdatePartnerNickname && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newName = prompt('Đổi biệt danh cho người ấy:', userB.name);
+                        if (newName && newName.trim()) {
+                          onUpdatePartnerNickname(newName.trim());
+                        }
+                      }}
+                      className="p-0.5 hover:bg-rose-100 rounded text-stone-400 hover:text-rose-600 transition-colors cursor-pointer"
+                      title="Đổi biệt danh cho người ấy"
+                    >
+                      <Edit3 className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-center justify-end gap-0.5 mt-0.5 font-normal truncate" title={`${getStatusLabel(userB.status)}${userB.activity ? ' · ' + getActivityLabel(userB.activity) : ''}`}>
+              <p className="text-[10px] text-stone-500 flex items-start justify-start gap-0.5 mt-0.5 font-normal whitespace-normal" title={`${getStatusLabel(userB.status)}${userB.activity ? ' · ' + getActivityLabel(userB.activity) : ''}`}>
                 <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />
-                <span className="truncate">{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
+                <span className="[overflow-wrap:anywhere]">{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
               </p>
             </div>
           </div>
@@ -409,7 +454,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </button>
         </div>
 
-        {recentMemories.length > 0 ? (
+        {isLoadingMemories && recentMemories.length === 0 ? (
+          <div className="py-5 flex flex-col items-center justify-center gap-2 bg-stone-50/50 rounded-2xl border border-dashed border-stone-200 text-stone-400">
+            <div className="w-5 h-5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
+            <span className="text-[11px] font-medium text-stone-500">Đang tải khoảnh khắc của hai bạn...</span>
+          </div>
+        ) : recentMemories.length > 0 ? (
           <div className="space-y-2">
             <div className="grid grid-cols-3 gap-1.5">
               {recentMemories.slice(0, 3).map((item) => (
@@ -419,12 +469,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     playSound('click');
                     onNavigateToShared?.();
                   }}
-                  className="group relative aspect-square rounded-2xl overflow-hidden cursor-pointer border border-stone-100 shadow-2xs hover:shadow-sm transition-all"
+                  className="group relative aspect-square rounded-2xl overflow-hidden cursor-pointer border border-stone-100 shadow-2xs hover:shadow-sm transition-all bg-stone-100"
                 >
-                  <img
-                    src={item.imageUrl}
+                  <MemoryPhoto
+                    memoryId={item.id}
+                    imageUrl={item.imageUrl}
                     alt={item.caption}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    isBackendMode={isBackendMode}
+                    loading="eager"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1.5">
                     <p className="text-[9px] text-white font-medium truncate leading-tight">
@@ -442,16 +495,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </p>
           </div>
         ) : (
-          <div className="py-4 text-center space-y-2 bg-stone-50/60 rounded-2xl border border-dashed border-stone-200">
-            <p className="text-xs text-stone-500 font-medium">Chưa có ảnh kỷ niệm nào được lưu</p>
+          <div className="py-5 text-center space-y-2.5 bg-rose-50/30 rounded-2xl border border-dashed border-rose-200 p-3">
+            <div className="w-10 h-10 mx-auto rounded-full bg-rose-100 text-rose-500 flex items-center justify-center">
+              <Camera className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs text-stone-700 font-semibold">Chưa có ảnh kỷ niệm nào</p>
+              <p className="text-[10px] text-stone-400 mt-0.5">Hãy cùng người ấy lưu giữ khoảnh khắc đầu tiên của hai bạn!</p>
+            </div>
             <button
               onClick={() => {
                 playSound('click');
                 onNavigateToShared?.();
               }}
-              className="text-[11px] font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition-colors inline-flex items-center gap-1"
+              className="text-[11px] font-bold text-white bg-linear-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 px-3.5 py-1.5 rounded-xl shadow-xs transition-all inline-flex items-center gap-1 active:scale-95"
             >
-              <span>+ Thêm ảnh đầu tiên (+10 pts)</span>
+              <span>+ Đăng ảnh kỷ niệm (+10 pts)</span>
             </button>
           </div>
         )}
