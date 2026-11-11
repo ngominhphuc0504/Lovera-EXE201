@@ -5,6 +5,11 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using System.Threading.RateLimiting;
+using System.Security.Claims;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
+using System.IO.Compression;
+using Microsoft.AspNetCore.ResponseCompression;
 
 var builder = WebApplication.CreateBuilder(args);
 var connection = builder.Configuration.GetConnectionString("Default") ?? throw new InvalidOperationException("Missing ConnectionStrings:Default");
@@ -74,10 +79,148 @@ else
 
 builder.Services.AddAuthentication("Session").AddScheme<AuthenticationSchemeOptions, SessionAuthHandler>("Session", _ => { });
 builder.Services.AddAuthorization(o => o.AddPolicy("VerifiedEmail", p => p.RequireAuthenticatedUser().RequireClaim("email_verified", "true")));
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+
+builder.Services.Configure<BrotliCompressionProviderOptions>(
+    options =>
+    {
+        options.Level = CompressionLevel.Fastest;
+    });
+
+builder.Services.Configure<GzipCompressionProviderOptions>(
+    options =>
+    {
+        options.Level = CompressionLevel.Fastest;
+    });
+
 builder.Services.AddControllers().ConfigureApiBehaviorOptions(o => o.InvalidModelStateResponseFactory = c => new Microsoft.AspNetCore.Mvc.BadRequestObjectResult(new { code = "invalid_input", message = "Dữ liệu đầu vào không hợp lệ.", errors = c.ModelState.Where(x => x.Value?.Errors.Count > 0).ToDictionary(x => x.Key, x => x.Value!.Errors.Select(e => e.ErrorMessage)) }));
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o => { o.SwaggerDoc("v1", new OpenApiInfo { Title = "LOVERA APIs", Version = "v1" }); o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "Opaque", Description = "Token từ /api/auth/login" }); o.AddSecurityRequirement(new OpenApiSecurityRequirement { [new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } }] = [] }); });
-builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    // Lớp bảo vệ tổng thể theo IP.
+    options.GlobalLimiter =
+        PartitionedRateLimiter.Create<HttpContext, string>(
+            context => RateLimitPolicies.Fixed(
+                context,
+                "global",
+                300,
+                TimeSpan.FromMinutes(1),
+                preferAuthenticatedUser: false));
+
+    options.AddPolicy("register", context =>
+        RateLimitPolicies.Fixed(
+            context, "register", 3, TimeSpan.FromMinutes(15),
+            preferAuthenticatedUser: false));
+
+    options.AddPolicy("login", context =>
+        RateLimitPolicies.Fixed(
+            context, "login", 10, TimeSpan.FromMinutes(1),
+            preferAuthenticatedUser: false));
+
+    options.AddPolicy("email", context =>
+        RateLimitPolicies.Fixed(
+            context, "email", 3, TimeSpan.FromMinutes(10),
+            preferAuthenticatedUser: false));
+    options.AddPolicy("otp", context =>
+        RateLimitPolicies.Fixed(
+            context,
+            "otp",
+            5,
+            TimeSpan.FromMinutes(10),
+            preferAuthenticatedUser: false));
+
+    options.AddPolicy("pairing", context =>
+        RateLimitPolicies.Fixed(
+            context, "pairing", 10, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("profile-write", context =>
+        RateLimitPolicies.Fixed(
+            context, "profile-write", 10, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("upload", context =>
+        RateLimitPolicies.Fixed(
+            context, "upload", 5, TimeSpan.FromHours(1)));
+
+    options.AddPolicy("memory-write", context =>
+        RateLimitPolicies.Fixed(
+            context, "memory-write", 10, TimeSpan.FromHours(1)));
+
+    options.AddPolicy("garden-write", context =>
+        RateLimitPolicies.Fixed(
+            context, "garden-write", 10, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("status-write", context =>
+        RateLimitPolicies.Fixed(
+            context, "status-write", 20, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("plan-generate", context =>
+        RateLimitPolicies.Fixed(
+            context, "plan-generate", 5, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("plan-write", context =>
+        RateLimitPolicies.Fixed(
+            context, "plan-write", 10, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("ai-conversation", context =>
+        RateLimitPolicies.Fixed(
+            context, "ai-conversation", 5, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("ai-message", context =>
+        RateLimitPolicies.Fixed(
+            context, "ai-message", 20, TimeSpan.FromMinutes(10)));
+
+    options.AddPolicy("dangerous", context =>
+        RateLimitPolicies.Fixed(
+            context, "dangerous", 3, TimeSpan.FromHours(1)));
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        int? retryAfterSeconds = null;
+
+        if (context.Lease.TryGetMetadata(
+                MetadataName.RetryAfter,
+                out var retryAfter))
+        {
+            retryAfterSeconds = Math.Max(
+                1,
+                (int)Math.Ceiling(retryAfter.TotalSeconds));
+
+            context.HttpContext.Response.Headers.RetryAfter =
+                retryAfterSeconds.Value.ToString();
+        }
+
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            new
+            {
+                code = "rate_limited",
+                message = "Bạn thao tác quá nhanh. Vui lòng thử lại sau.",
+                retryAfterSeconds
+            },
+            cancellationToken);
+    };
+});
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto;
+
+    options.ForwardLimit = 1;
+
+    // Backend chỉ được truy cập thông qua load balancer của Render.
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
 // Check PostgreSQL before Kestrel opens Swagger or any API endpoint.
 await using (var scope = app.Services.CreateAsyncScope())
@@ -88,16 +231,37 @@ await using (var scope = app.Services.CreateAsyncScope())
     if (!builder.Configuration.GetValue<bool>("Database:SkipStartupCheck") && !await db.Database.CanConnectAsync())
         throw new InvalidOperationException("Không kết nối được PostgreSQL. Hãy bật Docker Compose service db và kiểm tra ConnectionStrings:Default.");
 }
+app.UseForwardedHeaders();
+app.UseResponseCompression();
 app.UseRouting();
 app.UseCors("Frontend");
 app.UseMiddleware<ProblemMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI();
-app.UseRateLimiter();
 app.UseAuthentication();
+// Phải đặt sau Authentication để policy đọc được userId.
+app.UseRateLimiter();
+
 app.UseAuthorization();
+
 app.MapControllers();
-app.MapGet("/health/live", () => Results.Ok(new { status = "live" }));
-app.MapGet("/health/ready", async (LoveraDbContext db, CancellationToken ct) => { try { await db.Users.AnyAsync(ct); return Results.Ok(new { status = "ready" }); } catch { return Results.StatusCode(503); } });
+
+app.MapGet("/health/live",
+    () => Results.Ok(new { status = "live" }));
+
+app.MapGet("/health/ready",
+    async (LoveraDbContext db, CancellationToken ct) =>
+    {
+        try
+        {
+            await db.Users.AnyAsync(ct);
+            return Results.Ok(new { status = "ready" });
+        }
+        catch
+        {
+            return Results.StatusCode(503);
+        }
+    });
+
 app.Run();
 public partial class Program { }
