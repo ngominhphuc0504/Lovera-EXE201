@@ -2,7 +2,9 @@ import {
   apiFetch, 
   setStoredToken, 
   clearStoredToken, 
-  setStoredUserProfile 
+  setStoredUserProfile,
+  BASE_API_URL,
+  getStoredToken
 } from './apiClient';
 
 export interface RegisterRequest {
@@ -151,6 +153,29 @@ export const authService = {
     });
     setStoredUserProfile(profile);
     return profile;
+  },
+
+  /**
+   * Tải ảnh đại diện của chính mình từ backend dưới dạng Blob
+   * GET /api/profile/me/avatar
+   */
+  async getMyAvatarBlob(): Promise<Blob | null> {
+    const token = getStoredToken();
+    if (!token) return null;
+    try {
+      const response = await fetch(`${BASE_API_URL}/profile/me/avatar`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'image/*',
+        },
+      });
+      if (!response.ok) return null;
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) return null;
+      return blob;
+    } catch {
+      return null;
+    }
   },
 
   /**

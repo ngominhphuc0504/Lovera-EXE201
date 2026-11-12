@@ -20,7 +20,9 @@ import {
   EyeOff,
   Trash2,
   X,
-  ShieldCheck
+  ShieldCheck,
+  MapPin,
+  Server
 } from 'lucide-react';
 import { CoupleData, ChatMessage } from '../../types';
 import { playSound } from '../../utils/audio';
@@ -30,6 +32,8 @@ import {
   setGeminiApiKey,
   isGeminiConfigured
 } from '../../services/geminiService';
+import { aiChatService, AiDateSuggestion } from '../../services/aiChatService';
+import { getStoredToken } from '../../services/apiClient';
 
 interface ChatbotScreenProps {
   couple: CoupleData;
@@ -75,6 +79,14 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     return INITIAL_MESSAGES;
   });
 
+  const [conversationId, setConversationId] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('lovera_active_ai_conv_id');
+    } catch {
+      return null;
+    }
+  });
+  const [isBackendConnected, setIsBackendConnected] = useState<boolean>(false);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -86,6 +98,80 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Synchronize conversation and message history with Lovera Backend AI
+  useEffect(() => {
+    let isMounted = true;
+
+    const syncBackendChat = async () => {
+      const token = getStoredToken();
+      if (!token) {
+        setIsBackendConnected(false);
+        return;
+      }
+
+      try {
+        const convList = await aiChatService.listConversations(10);
+        if (!isMounted) return;
+
+        const activeConv = convList.find(c => !c.archivedAtUtc) || convList[0];
+        let currentConvId = activeConv?.id;
+
+        if (!currentConvId) {
+          const newConv = await aiChatService.createConversation('Tư vấn hẹn hò');
+          if (!isMounted) return;
+          currentConvId = newConv.id;
+        }
+
+        setConversationId(currentConvId);
+        try {
+          localStorage.setItem('lovera_active_ai_conv_id', currentConvId);
+        } catch {
+          // Ignore storage quota
+        }
+        setIsBackendConnected(true);
+
+        const msgList = await aiChatService.getMessages(currentConvId, 50);
+        if (!isMounted) return;
+
+        if (msgList && msgList.length > 0) {
+          const mapped: ChatMessage[] = msgList.map(m => {
+            const suggestions: string[] = [];
+            if (m.data?.suggestions && m.data.suggestions.length > 0) {
+              m.data.suggestions.forEach(s => {
+                if (s.name) suggestions.push(`Chi tiết về ${s.name}`);
+              });
+            }
+            const timeStr = new Date(m.createdAtUtc).toLocaleTimeString('vi-VN', {
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+
+            return {
+              id: m.id,
+              sender: m.role === 'user' ? 'user' : 'bot',
+              text: m.content,
+              timestamp: timeStr,
+              suggestions: suggestions.length > 0 ? suggestions : undefined,
+              isGemini: true,
+              data: m.data,
+              sources: m.sources?.map(s => ({ url: s.url, title: s.title }))
+            };
+          });
+          setMessages(mapped);
+        }
+      } catch (err) {
+        console.warn('[ChatbotScreen] Backend AI offline or unauthenticated, fallback to Gemini mode:', err);
+        if (isMounted) setIsBackendConnected(false);
+      }
+    };
+
+    syncBackendChat();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Auto-hide Gamification Banner after 5 seconds
   useEffect(() => {
@@ -252,6 +338,103 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     setInput('');
     setIsTyping(true);
 
+    // 1. Prioritize Lovera Backend AI if user is authenticated
+    const token = getStoredToken();
+    if (token) {
+      try {
+        let activeConvId = conversationId;
+        if (!activeConvId) {
+          const newConv = await aiChatService.createConversation('Tư vấn hẹn hò');
+          activeConvId = newConv.id;
+          setConversationId(activeConvId);
+          try {
+            localStorage.setItem('lovera_active_ai_conv_id', activeConvId);
+          } catch {
+            // Ignore storage quota
+          }
+        }
+
+        const res = await aiChatService.sendMessage(activeConvId, { content: query });
+        setIsBackendConnected(true);
+
+        const suggestions: string[] = [];
+        if (res.assistantMessage.data?.suggestions && res.assistantMessage.data.suggestions.length > 0) {
+          res.assistantMessage.data.suggestions.forEach(s => {
+            if (s.name) suggestions.push(`Chi tiết về ${s.name}`);
+          });
+        }
+        if (suggestions.length === 0) {
+          suggestions.push('💡 Gợi ý thêm địa điểm khác', '💰 Chi phí dự kiến bao nhiêu?', '👗 Gợi ý trang phục phù hợp');
+        }
+
+        const botMsg: ChatMessage = {
+          id: res.assistantMessage.id,
+          sender: 'bot',
+          text: res.assistantMessage.content,
+          timestamp: 'Vừa xong',
+          suggestions,
+          isGemini: true,
+          data: res.assistantMessage.data,
+          sources: res.assistantMessage.sources?.map(s => ({ url: s.url, title: s.title }))
+        };
+
+        setMessages(prev => [...prev, botMsg]);
+        playSound('chime');
+        onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
+        setIsTyping(false);
+        return;
+      } catch (backendErr: any) {
+        console.warn('[ChatbotScreen] Backend AI request failed:', backendErr);
+
+        // If user has configured a Gemini API key on client, use dynamic Gemini AI directly
+        if (isGeminiConfigured()) {
+          try {
+            const replyData = await generateGeminiReply(
+              query,
+              updatedMessages,
+              couple,
+              generateBotReply
+            );
+            if (replyData.isGeminiPowered) {
+              const botMsg: ChatMessage = {
+                id: `bot_${Date.now()}`,
+                sender: 'bot',
+                text: replyData.text,
+                timestamp: 'Vừa xong',
+                suggestions: replyData.suggestions,
+                isGemini: true
+              };
+              setMessages(prev => [...prev, botMsg]);
+              playSound('chime');
+              onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
+              setIsTyping(false);
+              return;
+            }
+          } catch (geminiClientErr) {
+            console.error('[ChatbotScreen] Client Gemini also failed:', geminiClientErr);
+          }
+        }
+
+        // Show transparent error status from Backend so user is never misled by hardcoded template replies
+        const errorMsg = backendErr?.message || 'AI Backend đang bận hoặc chưa thể phản hồi.';
+        const botErrorMsg: ChatMessage = {
+          id: `err_${Date.now()}`,
+          sender: 'bot',
+          text: `⚠️ **Phản hồi từ Lovera Backend AI:**\n${errorMsg}\n\n📌 **Nguyên nhân kỹ thuật:**\nFrontend đã kết nối thành công tới API Backend (\`/api/ai-conversations\`), nhưng khi server Backend chuyển tiếp tới Google Gemini thì gặp lỗi (do máy chủ Backend chưa cấu hình biến môi trường \`AI_API_KEY\` hoặc \`AI_MODEL\`).\n\n✨ **Cách giải quyết:**\n1. **Phía Server Backend:** Điền \`AI_API_KEY\` và \`AI_MODEL\` vào file cấu hình của server Backend.\n2. **Hoặc bật Gemini ngay tại trình duyệt:** Bấm vào nút **"Bật Gemini"** hoặc biểu tượng chìa khóa 🔑 ở góc trên để dán API Key miễn phí từ [Google AI Studio](https://aistudio.google.com/app/apikey) để trò chuyện với Gemini AI ngay lập tức!`,
+          timestamp: 'Vừa xong',
+          suggestions: [
+            '💡 Ý tưởng hẹn hò lãng mạn',
+            '🍲 Hôm nay ăn gì?'
+          ]
+        };
+        setMessages(prev => [...prev, botErrorMsg]);
+        playSound('chime');
+        setIsTyping(false);
+        return;
+      }
+    }
+
+    // 2. Fallback to client-side Gemini or intelligent domain rules
     try {
       const replyData = await generateGeminiReply(
         query,
@@ -290,12 +473,27 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     }
   };
 
-  const handleResetChat = () => {
+  const handleResetChat = async () => {
     if (window.confirm('Bạn có muốn làm mới cuộc trò chuyện với Lovera AI không?')) {
       playSound('click');
       setMessages(INITIAL_MESSAGES);
       localStorage.removeItem('lovera_chat_history');
+      localStorage.removeItem('lovera_active_ai_conv_id');
       setShowBanner(true);
+
+      const token = getStoredToken();
+      if (token) {
+        try {
+          if (conversationId) {
+            await aiChatService.archiveConversation(conversationId);
+          }
+          const newConv = await aiChatService.createConversation('Tư vấn hẹn hò mới');
+          setConversationId(newConv.id);
+          localStorage.setItem('lovera_active_ai_conv_id', newConv.id);
+        } catch (err) {
+          console.warn('[ChatbotScreen] Reset backend chat error:', err);
+        }
+      }
     }
   };
 
@@ -318,7 +516,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-rose-500 via-pink-500 to-purple-600 flex items-center justify-center text-white shadow-xs ring-2 ring-rose-200">
               <Bot className="w-5 h-5" />
             </div>
-            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${geminiActive ? 'bg-purple-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white rounded-full ${isBackendConnected ? 'bg-purple-500 animate-pulse' : (geminiActive ? 'bg-purple-500' : 'bg-emerald-500')}`}></span>
           </div>
 
           <div>
@@ -330,14 +528,16 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                 type="button"
                 onClick={handleOpenKeyModal}
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 transition-all cursor-pointer ${
-                  geminiActive
+                  isBackendConnected
+                    ? 'bg-gradient-to-r from-purple-50 via-pink-50 to-rose-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
+                    : geminiActive
                     ? 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
                     : 'bg-stone-50 text-stone-500 border-stone-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200'
                 }`}
-                title="Cấu hình Google Gemini AI"
+                title={isBackendConnected ? "Đã kết nối Lovera Backend AI Server" : "Cấu hình Google Gemini AI"}
               >
-                <Sparkles className={`w-2.5 h-2.5 ${geminiActive ? 'text-purple-600' : 'text-stone-400'}`} />
-                <span>{geminiActive ? 'Gemini 2.5' : 'Bật Gemini'}</span>
+                <Sparkles className={`w-2.5 h-2.5 ${isBackendConnected || geminiActive ? 'text-purple-600' : 'text-stone-400'}`} />
+                <span>{isBackendConnected ? 'Backend AI' : (geminiActive ? 'Gemini 2.5' : 'Bật Gemini')}</span>
               </button>
             </div>
             <p className="text-[11px] text-stone-500 flex items-center gap-1">
@@ -350,9 +550,9 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           <button
             type="button"
             onClick={handleOpenKeyModal}
-            title="Cài đặt Gemini API Key"
+            title="Cài đặt Gemini API Key & Trạng thái Backend"
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
-              geminiActive
+              isBackendConnected || geminiActive
                 ? 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-600 shadow-2xs'
                 : 'bg-stone-50 hover:bg-stone-100 border-stone-200 text-stone-500'
             }`}
@@ -419,13 +619,71 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                   {!isUser && msg.isGemini && (
                     <div className="inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-100 via-pink-100 to-rose-100 text-purple-800 text-[10px] font-bold border border-purple-200/60 shadow-2xs">
                       <Sparkles className="w-3 h-3 text-purple-600 animate-spin [animation-duration:4s]" />
-                      <span>Gemini Flash</span>
+                      <span>{isBackendConnected ? 'Lovera AI Assistant' : 'Gemini Flash'}</span>
                     </div>
                   )}
 
                   <div className="whitespace-pre-line font-normal">
                     {msg.text}
                   </div>
+
+                  {/* Backend Structured Suggestions */}
+                  {!isUser && msg.data?.suggestions && msg.data.suggestions.length > 0 && (
+                    <div className="mt-2.5 pt-2 border-t border-rose-100/70 space-y-2">
+                      <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-rose-500" />
+                        <span>Gợi ý địa điểm dành cho hai bạn:</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {msg.data.suggestions.map((sug: any, sIdx: number) => (
+                          <div
+                            key={sIdx}
+                            className="bg-rose-50/40 hover:bg-rose-50/80 border border-rose-100 rounded-xl p-2.5 transition-colors"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-bold text-stone-900 text-xs">{sug.name}</span>
+                              {sug.priceText && (
+                                <span className="text-[10px] font-semibold text-rose-600 bg-rose-100/70 px-1.5 py-0.5 rounded-md shrink-0">
+                                  {sug.priceText}
+                                </span>
+                              )}
+                            </div>
+                            {sug.address && (
+                              <div className="text-[11px] text-stone-500 flex items-center gap-1 mt-1">
+                                <MapPin className="w-3 h-3 text-rose-400 shrink-0" />
+                                <span className="truncate">{sug.address}</span>
+                              </div>
+                            )}
+                            {sug.summary && (
+                              <p className="text-[11px] text-stone-600 mt-1 leading-relaxed">
+                                {sug.summary}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Backend Citations / Sources */}
+                  {!isUser && msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-2 pt-1.5 border-t border-stone-100 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] text-stone-400 font-medium">Nguồn:</span>
+                      {msg.sources.slice(0, 3).map((src, sIdx) => (
+                        <a
+                          key={sIdx}
+                          href={src.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[10px] text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 px-1.5 py-0.5 rounded-md border border-purple-200/60 max-w-[140px] truncate"
+                          title={src.title || src.url}
+                        >
+                          <span className="truncate">{src.title || 'Liên kết'}</span>
+                          <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Copy Button for Bot Messages */}
                   {!isUser && (
@@ -567,16 +825,25 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
               <div className="bg-purple-50/70 border border-purple-100 rounded-2xl p-3 text-xs text-purple-900 leading-relaxed flex items-start gap-2.5">
                 <ShieldCheck className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold text-purple-950">Bảo mật thiết bị</p>
-                  <p className="text-stone-600 text-[11px] mt-0.5">
-                    API key được lưu an toàn trên trình duyệt của bạn và chỉ gửi trực tiếp tới máy chủ Google GenAI khi tạo phản hồi.
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="font-semibold text-purple-950">Lovera AI & Gemini</p>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                      isBackendConnected 
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                        : 'bg-stone-100 text-stone-600 border-stone-200'
+                    }`}>
+                      {isBackendConnected ? 'Backend AI Đang Hoạt Động' : 'Client Mode'}
+                    </span>
+                  </div>
+                  <p className="text-stone-600 text-[11px] leading-relaxed">
+                    Khi đã đăng nhập, hệ thống tự động kết nối với AI Backend của Lovera. Bạn cũng có thể thiết lập thêm Gemini API Key riêng để chạy trực tiếp từ trình duyệt khi cần.
                   </p>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-800 mb-1.5">
-                  Google Gemini API Key
+                  Google Gemini API Key (Tùy chọn)
                 </label>
                 <div className="relative">
                   <input

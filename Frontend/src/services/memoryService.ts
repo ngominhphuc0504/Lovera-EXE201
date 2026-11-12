@@ -29,13 +29,13 @@ export const memoryService = {
   },
 
   /**
-   * Tạo bài viết kỷ niệm kèm ảnh
+   * Tạo bài viết kỷ niệm kèm ảnh hoặc chỉ ghi chú
    * POST /api/memories (multipart/form-data)
    */
-  async createMemory(text: string, imageFile: File): Promise<BackendMemoryItem> {
+  async createMemory(text?: string, imageFile?: File): Promise<BackendMemoryItem> {
     const formData = new FormData();
     if (text) formData.append('text', text);
-    formData.append('image', imageFile, imageFile.name);
+    if (imageFile) formData.append('image', imageFile, imageFile.name);
 
     return apiFetch<BackendMemoryItem>('/memories', {
       method: 'POST',

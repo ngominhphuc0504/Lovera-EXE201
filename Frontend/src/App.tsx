@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType, MemoryItem, PointHistoryItem } from './types';
+import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType, MemoryItem, MemoryTag, PointHistoryItem, GardenEcoMetrics } from './types';
 import { 
   INITIAL_COUPLE, 
   INITIAL_DATE_PLANS, 
@@ -8,6 +8,8 @@ import {
   INITIAL_MEMORIES 
 } from './data/mockData';
 import { playSound } from './utils/audio';
+import { GARDEN_CONFIG } from './constants/gardenConfig';
+import { calculateDecayedMetrics, getCooldownRemaining, isTreeReadyToEvolve } from './utils/gardenDecay';
 
 import { Header } from './components/common/Header';
 import { BottomNav } from './components/common/BottomNav';
@@ -36,15 +38,30 @@ import {
 } from './data/mockAdminData';
 import { AdminUserAccount, AdminSystemMetric, AdminActivityLog } from './types';
 import { Heart, Smartphone, Monitor, Shield } from 'lucide-react';
-import { STORAGE_KEYS, loadStoredData, saveStoredData, broadcastMessage, subscribeToSync } from './utils/syncManager';
-import { getStoredToken } from './services/apiClient';
+import { STORAGE_KEYS, loadStoredData, saveStoredData, broadcastMessage, subscribeToSync, cleanupOversizedStorage, dataUrlToFile } from './utils/syncManager';
+import { getStoredToken, getStoredUserProfile, clearStoredToken } from './services/apiClient';
+import { saveKnownUser, findKnownUserById, saveUserAvatar, getUserAvatar, findKnownUserByName, isValidDisplayAvatar, blobToDataUrl } from './utils/userDirectory';
 import { authService } from './services/authService';
 import { coupleService } from './services/coupleService';
 import { getMemoryImageUrl, memoryService } from './services/memoryService';
 
 export default function App() {
-  // Main Screen Navigation State (First-time open -> Welcome Screen)
-  const [currentScreen, setCurrentScreen] = useState<Screen>('welcome');
+  // Main Screen Navigation State (Dedicated link for admin: /admin or ?mode=admin)
+  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
+    try {
+      const path = window.location.pathname.toLowerCase();
+      const params = new URLSearchParams(window.location.search);
+      if (path.endsWith('/admin') || path === '/admin' || params.get('mode') === 'admin' || params.get('admin') === 'true') {
+        return 'admin';
+      }
+    } catch {}
+
+    if (getStoredToken()) {
+      const stored = loadStoredData(STORAGE_KEYS.COUPLE, INITIAL_COUPLE);
+      return stored?.isPaired ? 'home' : 'pairing';
+    }
+    return 'welcome';
+  });
   const [isDemoMode, setIsDemoMode] = useState(() => !getStoredToken());
   const [pairingInitialStage, setPairingInitialStage] = useState<PairingStage>('idle');
   const [pairingBannerMessage, setPairingBannerMessage] = useState<string>('');
@@ -76,13 +93,70 @@ export default function App() {
   const [adminMetrics, setAdminMetrics] = useState<AdminSystemMetric>(() =>
     loadStoredData(STORAGE_KEYS.ADMIN_METRICS, INITIAL_ADMIN_METRICS)
   );
-  const [previousScreen, setPreviousScreen] = useState<Screen>('welcome');
 
-  const mapBackendMemory = (item: Awaited<ReturnType<typeof memoryService.getTimeline>>[number]): MemoryItem => {
+  const INITIAL_GARDEN_METRICS: GardenEcoMetrics = {
+    moisture: GARDEN_CONFIG.INITIAL_STATS.MOISTURE,
+    freshness: GARDEN_CONFIG.INITIAL_STATS.FRESHNESS,
+    sunlight: GARDEN_CONFIG.INITIAL_STATS.SUNLIGHT,
+    lastUpdateUtc: new Date().toISOString(),
+    lastWaterUtc: null,
+    lastFertilizeUtc: null,
+    lastSunUtc: null,
+    completedCycles: 0,
+  };
+
+  const [gardenMetrics, setGardenMetrics] = useState<GardenEcoMetrics>(() => {
+    const loaded = loadStoredData<GardenEcoMetrics>(STORAGE_KEYS.GARDEN_METRICS, INITIAL_GARDEN_METRICS);
+    const decayed = calculateDecayedMetrics(loaded);
+    saveStoredData(STORAGE_KEYS.GARDEN_METRICS, decayed);
+    return decayed;
+  });
+  const [previousScreen, setPreviousScreen] = useState<Screen>('welcome');
+  const lastSyncedPartnerAvatarMemId = React.useRef<string>('');
+  const lastSyncedMyAvatarMemId = React.useRef<string>('');
+
+  const MEMORY_LIKES_KEY = 'lovera_memory_likes';
+
+  const getMemoryLikesMap = (): Record<string, { likes: number; isLiked: boolean }> => {
+    try {
+      const raw = localStorage.getItem(MEMORY_LIKES_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const saveMemoryLikesMap = (map: Record<string, { likes: number; isLiked: boolean }>) => {
+    try {
+      localStorage.setItem(MEMORY_LIKES_KEY, JSON.stringify(map));
+    } catch {}
+  };
+
+  const mapBackendMemory = (
+    item: Awaited<ReturnType<typeof memoryService.getTimeline>>[number],
+    remoteLikesMap?: Record<string, { likerUserIds: Set<string>; myLikeItemIds: string[] }>,
+  ): MemoryItem => {
     const creatorId = (item.creatorUserId || item.userId || '').toLowerCase();
-    const author = [couple.userA, couple.userB].find(partner => partner.id.toLowerCase() === creatorId);
+    const storedProfile = getStoredUserProfile<{ id: string; displayName?: string }>();
+    const myId = (storedProfile?.id || couple.userA.id || '').toLowerCase();
+    const isMine = Boolean(myId && creatorId && myId === creatorId);
+
+    const authorName = isMine
+      ? (couple.userA.name || storedProfile?.displayName || 'Tôi')
+      : (couple.userB.name && couple.userB.name !== 'Chưa kết nối' && couple.userB.name !== 'Người Thương'
+          ? couple.userB.name
+          : (findKnownUserById(creatorId)?.name || localStorage.getItem(`lovera_partner_name_${creatorId}`) || localStorage.getItem('lovera_partner_nickname') || 'Người Thương'));
+
+    const authorAvatar = isMine ? couple.userA.avatar : (couple.userB.avatar || INITIAL_COUPLE.userB.avatar);
     const createdAt = new Date(item.createdAtUtc);
     const validDate = !Number.isNaN(createdAt.getTime());
+
+    const remoteLikeInfo = remoteLikesMap?.[item.id];
+    const likesMap = getMemoryLikesMap();
+    const savedLike = likesMap[item.id];
+
+    const likes = remoteLikeInfo ? remoteLikeInfo.likerUserIds.size : (savedLike?.likes ?? 0);
+    const isLiked = remoteLikeInfo ? (remoteLikeInfo.myLikeItemIds.length > 0) : (savedLike?.isLiked ?? false);
 
     return {
       id: item.id,
@@ -90,22 +164,264 @@ export default function App() {
       caption: item.text || 'Một khoảnh khắc đáng nhớ của hai đứa.',
       date: validDate ? createdAt.toISOString().slice(0, 10) : '',
       location: undefined,
-      tag: 'Kỷ niệm',
-      authorName: author?.name || 'Thành viên cặp đôi',
-      authorAvatar: author?.avatar || couple.userA.avatar,
-      likes: 0,
-      isLiked: false,
+      tag: 'Kỷ niệm' as MemoryTag,
+      authorName,
+      authorAvatar,
+      creatorUserId: creatorId,
+      isMyMemory: isMine,
+      likes,
+      isLiked,
       createdAt: validDate ? createdAt.toLocaleString('vi-VN') : item.createdAtUtc,
     };
   };
 
-  const refreshBackendMemories = async (): Promise<boolean> => {
-    setIsLoadingBackendMemories(true);
+  const refreshBackendMemories = async (isBackground = false): Promise<boolean> => {
+    if (!isBackground && backendMemories.length === 0) {
+      setIsLoadingBackendMemories(true);
+    }
     setBackendMemoriesError('');
-    setBackendMemories([]);
     try {
       const items = await memoryService.getTimeline();
-      setBackendMemories(items.map(mapBackendMemory));
+      
+      const storedProfile = getStoredUserProfile<{ id: string; displayName?: string; email?: string }>();
+      const myId = (storedProfile?.id || couple.userA.id || '').toLowerCase();
+      let partnerId = (couple.userB.id || '').toLowerCase();
+      if (partnerId === 'usr_sam' || partnerId === 'usr_partner') partnerId = '';
+
+      // 1. Cross-device like aggregator: calculate likes from [LIKE]:<memoryId> on backend
+      const remoteLikesMap: Record<string, { likerUserIds: Set<string>; myLikeItemIds: string[] }> = {};
+      for (const m of items) {
+        if (m.text && m.text.startsWith('[LIKE]:')) {
+          const targetId = m.text.replace('[LIKE]:', '').trim();
+          if (!targetId) continue;
+          const creator = (m.creatorUserId || m.userId || '').toLowerCase();
+          const isByMe = Boolean(myId && creator && creator === myId);
+
+          if (!remoteLikesMap[targetId]) {
+            remoteLikesMap[targetId] = { likerUserIds: new Set<string>(), myLikeItemIds: [] };
+          }
+          if (creator) {
+            remoteLikesMap[targetId].likerUserIds.add(creator);
+          } else {
+            remoteLikesMap[targetId].likerUserIds.add(m.id);
+          }
+          if (isByMe) {
+            remoteLikesMap[targetId].myLikeItemIds.push(m.id);
+          }
+        }
+      }
+
+      // Sync likes into localStorage map
+      const likesMap = getMemoryLikesMap();
+      for (const targetId of Object.keys(remoteLikesMap)) {
+        const info = remoteLikesMap[targetId];
+        likesMap[targetId] = {
+          likes: info.likerUserIds.size,
+          isLiked: info.myLikeItemIds.length > 0,
+        };
+      }
+      saveMemoryLikesMap(likesMap);
+
+      // Filter out internal sync memories so they don't appear in user date memories preview
+      const isInternalSyncMemory = (text?: string | null) => {
+        if (!text) return false;
+        const t = text.trim();
+        return (
+          t === '[AVATAR]' ||
+          t === '[AVATAR_PROFILE]' ||
+          t.startsWith('[AVATAR:') ||
+          t.startsWith('[PROFILE_NAME]:') ||
+          t.startsWith('[SYNC_NAME]:') ||
+          t.startsWith('[PROFILE]:') ||
+          t.startsWith('[LIKE]:')
+        );
+      };
+
+      const dateMemories = items.filter(m => !isInternalSyncMemory(m.text));
+      
+      setBackendMemories(prev => {
+        const nextList = dateMemories.map(item => mapBackendMemory(item, remoteLikesMap));
+        if (prev.length === nextList.length) {
+          const isIdentical = prev.every((m, idx) => {
+            const next = nextList[idx];
+            return (
+              m.id === next.id &&
+              m.caption === next.caption &&
+              m.authorName === next.authorName &&
+              m.authorAvatar === next.authorAvatar &&
+              m.isLiked === next.isLiked &&
+              m.likes === next.likes
+            );
+          });
+          if (isIdentical) return prev;
+        }
+        return nextList;
+      });
+
+      // SMART BACKEND PROFILE & AVATAR LINKER:
+      // Auto-link partner and my avatar and name directly from shared memories on server
+      const isPartnerMemory = (m: Awaited<ReturnType<typeof memoryService.getTimeline>>[number]) => {
+        const creator = (m.creatorUserId || m.userId || '').toLowerCase();
+        if (partnerId && creator === partnerId) return true;
+        if (myId && myId !== 'usr_alex' && creator && creator !== myId) return true;
+        return false;
+      };
+
+      const isMyMemory = (m: Awaited<ReturnType<typeof memoryService.getTimeline>>[number]) => {
+        const creator = (m.creatorUserId || m.userId || '').toLowerCase();
+        return Boolean(myId && myId !== 'usr_alex' && creator === myId);
+      };
+
+      // 1. Detect if partner published their profile name via memory tag
+      const partnerNameMem = items.find(m =>
+        isPartnerMemory(m) && m.text && (
+          m.text.startsWith('[PROFILE_NAME]:') ||
+          m.text.startsWith('[SYNC_NAME]:') ||
+          m.text.startsWith('[AVATAR:')
+        )
+      );
+
+      let detectedPartnerName: string | undefined;
+      if (partnerNameMem?.text) {
+        if (partnerNameMem.text.startsWith('[AVATAR:')) {
+          const match = partnerNameMem.text.match(/^\[AVATAR:([^\]]+)\]/);
+          if (match && match[1]) detectedPartnerName = match[1].trim();
+        } else {
+          detectedPartnerName = partnerNameMem.text.replace(/^\[(PROFILE_NAME|SYNC_NAME)\]:/, '').trim();
+        }
+      }
+
+      if (detectedPartnerName && detectedPartnerName !== 'Người Thương') {
+        const realPartnerId = (partnerNameMem?.creatorUserId || partnerNameMem?.userId || partnerId || '').toLowerCase();
+        if (realPartnerId) {
+          saveKnownUser({ id: realPartnerId, name: detectedPartnerName });
+          localStorage.setItem(`lovera_partner_name_${realPartnerId}`, detectedPartnerName);
+        }
+        if (couple.coupleId) {
+          localStorage.setItem(`lovera_partner_name_${couple.coupleId}`, detectedPartnerName);
+        }
+        localStorage.setItem('lovera_partner_nickname', detectedPartnerName);
+
+        setCouple(prev => {
+          if (prev.userB.name === detectedPartnerName) return prev;
+          const nextCouple = {
+            ...prev,
+            userB: {
+              ...prev.userB,
+              id: realPartnerId || prev.userB.id,
+              name: detectedPartnerName,
+            }
+          };
+          saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
+          return nextCouple;
+        });
+      }
+
+      // 2. Auto-publish my own profile name to backend memories so partner's device automatically knows it
+      const myDisplayName = storedProfile?.displayName || couple.userA.name;
+      if (myDisplayName && myDisplayName !== 'Alex' && couple.isPaired) {
+        const hasMyNameBroadcast = items.some(m =>
+          isMyMemory(m) && m.text && (
+            m.text === `[PROFILE_NAME]:${myDisplayName}` ||
+            m.text === `[AVATAR:${myDisplayName}]`
+          )
+        );
+        if (!hasMyNameBroadcast) {
+          memoryService.createMemory(`[PROFILE_NAME]:${myDisplayName}`).catch(e => {
+            console.warn('[App] Auto-publish name to memory failed:', e);
+          });
+        }
+      }
+
+      // Find latest avatar photo uploaded by partner on the backend timeline
+      let partnerAvatarMem = items.find(m =>
+        isPartnerMemory(m) && m.hasImage && (
+          m.text === '[AVATAR]' ||
+          m.text === '[AVATAR_PROFILE]' ||
+          m.text?.startsWith('[AVATAR:')
+        )
+      );
+
+      // Fallback: If no explicit [AVATAR] tag yet, check for any memory image uploaded by partner
+      if (!partnerAvatarMem) {
+        partnerAvatarMem = items.find(m => isPartnerMemory(m) && m.hasImage);
+      }
+
+      if (partnerAvatarMem) {
+        const currentPartnerAv = couple.userB.avatar;
+        const partnerHasCustomAvatar = isValidDisplayAvatar(currentPartnerAv) &&
+          !currentPartnerAv.includes('unsplash.com') &&
+          !currentPartnerAv.startsWith('/api/') &&
+          (currentPartnerAv.startsWith('data:') || currentPartnerAv.startsWith('http'));
+
+        if (!partnerHasCustomAvatar || lastSyncedPartnerAvatarMemId.current !== partnerAvatarMem.id) {
+          try {
+            const blob = await memoryService.getImage(partnerAvatarMem.id);
+            const dataUrl = await blobToDataUrl(blob);
+            lastSyncedPartnerAvatarMemId.current = partnerAvatarMem.id;
+            const realPartnerId = (partnerAvatarMem.creatorUserId || partnerAvatarMem.userId || partnerId || '').toLowerCase();
+
+            if (realPartnerId) saveUserAvatar(realPartnerId, dataUrl);
+            if (couple.userB.name) saveUserAvatar(couple.userB.name, dataUrl);
+            if (couple.userB.email) saveUserAvatar(couple.userB.email, dataUrl);
+
+            setCouple(prev => {
+              if (prev.userB.avatar === dataUrl && prev.userB.name === (detectedPartnerName || prev.userB.name)) {
+                return prev;
+              }
+              const nextPartner = {
+                ...prev.userB,
+                id: realPartnerId || prev.userB.id,
+                avatar: dataUrl,
+                name: (detectedPartnerName && detectedPartnerName !== 'Người Thương') ? detectedPartnerName : prev.userB.name,
+              };
+              const nextCouple = { ...prev, userB: nextPartner };
+              saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
+              return nextCouple;
+            });
+          } catch (e) {
+            console.warn('[App] Failed to auto-link partner avatar from memory:', e);
+          }
+        }
+      }
+
+      // If userA avatar is still default mock or unset or starts with /api/, load from memory or profile
+      if (!isValidDisplayAvatar(couple.userA.avatar) || couple.userA.avatar.includes('unsplash.com') || couple.userA.avatar.startsWith('/api/') || couple.userA.avatar.startsWith('blob:')) {
+        const myAvatarMem = items.find(m => isMyMemory(m) && (m.text === '[AVATAR]' || m.text === '[AVATAR_PROFILE]'))
+          || items.find(m => isMyMemory(m));
+
+        if (myAvatarMem && lastSyncedMyAvatarMemId.current !== myAvatarMem.id) {
+          try {
+            const blob = await memoryService.getImage(myAvatarMem.id);
+            const dataUrl = await blobToDataUrl(blob);
+            lastSyncedMyAvatarMemId.current = myAvatarMem.id;
+            if (myId) saveUserAvatar(myId, dataUrl);
+            if (couple.userA.name) saveUserAvatar(couple.userA.name, dataUrl);
+            setCouple(prev => {
+              if (prev.userA.avatar === dataUrl) return prev;
+              const next = { ...prev, userA: { ...prev.userA, avatar: dataUrl } };
+              saveStoredData(STORAGE_KEYS.COUPLE, next);
+              return next;
+            });
+          } catch (e) {}
+        } else if (!myAvatarMem) {
+          try {
+            const myBlob = await authService.getMyAvatarBlob();
+            if (myBlob) {
+              const dataUrl = await blobToDataUrl(myBlob);
+              if (myId) saveUserAvatar(myId, dataUrl);
+              if (couple.userA.name) saveUserAvatar(couple.userA.name, dataUrl);
+              setCouple(prev => {
+                if (prev.userA.avatar === dataUrl) return prev;
+                const next = { ...prev, userA: { ...prev.userA, avatar: dataUrl } };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
+              });
+            }
+          } catch (e) {}
+        }
+      }
+
       return true;
     } catch (error) {
       setBackendMemoriesError(error instanceof Error ? error.message : 'Không thể tải kỷ niệm từ máy chủ.');
@@ -116,18 +432,9 @@ export default function App() {
   };
 
   React.useEffect(() => {
-    if (currentScreen !== 'shared' || isDemoMode) return;
-    void refreshBackendMemories();
-  }, [
-    currentScreen,
-    isDemoMode,
-    couple.userA.id,
-    couple.userA.name,
-    couple.userA.avatar,
-    couple.userB.id,
-    couple.userB.name,
-    couple.userB.avatar,
-  ]);
+    if ((currentScreen !== 'home' && currentScreen !== 'shared') || isDemoMode) return;
+    void refreshBackendMemories(true);
+  }, [currentScreen, isDemoMode, couple.isPaired]);
 
   const navigateToAdmin = () => {
     playSound('click');
@@ -178,7 +485,7 @@ export default function App() {
     return () => window.removeEventListener('popstate', checkUrl);
   }, []);
 
-  const syncAuthenticatedCouple = async () => {
+  const syncAuthenticatedCouple = async (allowScreenRedirect = true) => {
     if (!getStoredToken()) return;
 
     try {
@@ -186,40 +493,180 @@ export default function App() {
         authService.getProfile(),
         coupleService.getStatus(),
       ]);
-      setCouple(prev => ({
-        ...prev,
-        coupleId: status.couple?.coupleId || prev.coupleId,
-        startDate: status.couple?.startDate || prev.startDate,
-        isPaired: Boolean(status.isPaired),
-        userA: {
-          ...prev.userA,
-          id: profile.id,
-          name: profile.displayName || prev.userA.name,
-          email: profile.email || prev.userA.email,
-          avatar: profile.avatarUrl || prev.userA.avatar,
-        },
-        userB: status.couple?.partner
-          ? {
-              ...prev.userB,
-              id: status.couple.partner.userId,
-              name: status.couple.partner.displayName,
-              email: status.couple.partner.email,
-              avatar: status.couple.partner.avatarUrl || prev.userB.avatar,
-            }
-          : prev.userB,
-      }));
+
+      // Save logged-in user profile to known directory
+      saveKnownUser({
+        id: profile.id,
+        name: profile.displayName || profile.email.split('@')[0],
+        email: profile.email,
+        avatar: (isValidDisplayAvatar(profile.avatarUrl) && profile.avatarUrl) ? profile.avatarUrl : undefined,
+      });
+
+      const isPaired = Boolean(status.isPaired);
+
+      setCouple(prev => {
+        let partnerData = prev.userB;
+        if (isPaired) {
+          const otherId = status.couple?.userIds?.find((id: string) => id.toLowerCase() !== profile.id.toLowerCase());
+          const knownPartner = findKnownUserById(otherId);
+
+          const savedPartnerName =
+            (otherId ? localStorage.getItem(`lovera_partner_name_${otherId.toLowerCase()}`) : null) ||
+            (status.couple?.coupleId ? localStorage.getItem(`lovera_partner_name_${status.couple.coupleId}`) : null) ||
+            (localStorage.getItem('lovera_partner_nickname') && localStorage.getItem('lovera_partner_nickname') !== 'Người Thương' ? localStorage.getItem('lovera_partner_nickname') : null);
+
+          const resolvedName =
+            (status.couple as any)?.partner?.displayName ||
+            (status.couple as any)?.partner?.name ||
+            (status as any)?.partner?.displayName ||
+            (status as any)?.partner?.name ||
+            (status.couple as any)?.members?.find((m: any) => (m.userId || m.id)?.toLowerCase() !== profile.id.toLowerCase())?.displayName ||
+            (status.couple as any)?.members?.find((m: any) => (m.userId || m.id)?.toLowerCase() !== profile.id.toLowerCase())?.name ||
+            savedPartnerName ||
+            knownPartner?.name ||
+            findKnownUserByName(prev.userB.name)?.name ||
+            (prev.userB.name && prev.userB.name !== 'Chưa kết nối' && prev.userB.name !== 'Người Thương' ? prev.userB.name : '') ||
+            'Người Thương';
+
+          const resolvedEmail =
+            (status.couple as any)?.partner?.email ||
+            (status as any)?.partner?.email ||
+            (status.couple as any)?.members?.find((m: any) => (m.userId || m.id)?.toLowerCase() !== profile.id.toLowerCase())?.email ||
+            knownPartner?.email ||
+            prev.userB.email;
+
+          const resolvedId = (status.couple as any)?.partner?.userId || (status as any)?.partner?.userId || otherId || prev.userB.id || 'usr_partner';
+
+          const resolvedPartnerAvatar =
+            (isValidDisplayAvatar(status.couple?.partner?.avatarUrl) ? status.couple?.partner?.avatarUrl : '') ||
+            getUserAvatar(resolvedId) ||
+            getUserAvatar(resolvedName) ||
+            getUserAvatar(resolvedEmail) ||
+            (knownPartner && isValidDisplayAvatar(knownPartner.avatar) && knownPartner.avatar ? knownPartner.avatar : '') ||
+            (isValidDisplayAvatar(prev.userB.avatar) ? prev.userB.avatar : INITIAL_COUPLE.userB.avatar);
+
+          partnerData = {
+            ...prev.userB,
+            id: resolvedId,
+            name: resolvedName,
+            email: resolvedEmail,
+            avatar: resolvedPartnerAvatar,
+            status: 'Available',
+            isOnline: true,
+          };
+        } else {
+          partnerData = {
+            id: '',
+            name: 'Chưa kết nối',
+            avatar: INITIAL_COUPLE.userB.avatar,
+            email: '',
+            status: 'Away',
+            isOnline: false,
+            batteryLevel: 0,
+          };
+        }
+
+        const resolvedUserAAvatar =
+          (isValidDisplayAvatar(profile.avatarUrl) ? profile.avatarUrl : '') ||
+          getUserAvatar(profile.id) ||
+          getUserAvatar(profile.displayName) ||
+          getUserAvatar(profile.email) ||
+          (isValidDisplayAvatar(prev.userA.avatar) ? prev.userA.avatar : INITIAL_COUPLE.userA.avatar);
+
+        const next: CoupleData = {
+          ...prev,
+          coupleId: status.couple?.coupleId || (isPaired ? prev.coupleId : ''),
+          startDate: status.couple?.startDate || (isPaired ? prev.startDate : new Date().toISOString().split('T')[0]),
+          isPaired,
+          userA: {
+            ...prev.userA,
+            id: profile.id,
+            name: profile.displayName || prev.userA.name,
+            email: profile.email || prev.userA.email,
+            avatar: resolvedUserAAvatar,
+          },
+          userB: partnerData,
+        };
+
+        saveStoredData(STORAGE_KEYS.COUPLE, next);
+        return next;
+      });
+
+      // Load User A's real avatar blob from backend if stored on profile
+      if (profile.avatarUrl && profile.avatarUrl.startsWith('/api/')) {
+        setCouple(prev => {
+          if (!prev.userA.avatar || !prev.userA.avatar.startsWith('data:')) {
+            authService.getMyAvatarBlob().then(async blob => {
+              if (blob) {
+                const dataUrl = await blobToDataUrl(blob);
+                setCouple(curr => {
+                  const next = { ...curr, userA: { ...curr.userA, avatar: dataUrl } };
+                  saveStoredData(STORAGE_KEYS.COUPLE, next);
+                  return next;
+                });
+                if (profile.id) saveUserAvatar(profile.id, dataUrl);
+              }
+            }).catch(() => {});
+          }
+          return prev;
+        });
+      }
+
+      if (allowScreenRedirect) {
+        if (isPaired) {
+          void refreshBackendMemories();
+          setCurrentScreen(curr => (curr === 'welcome' || curr === 'login' || curr === 'auth' || curr === 'pairing' ? 'home' : curr));
+        } else {
+          setCurrentScreen(curr => (['home', 'shared', 'chat', 'planner', 'garden'].includes(curr) ? 'pairing' : curr));
+        }
+      }
     } catch (err) {
       console.warn('[App] Auto fetch real profile and couple status failed:', err);
     }
   };
 
   React.useEffect(() => {
+    // 1. Evict oversized legacy base64 strings to free browser quota
+    cleanupOversizedStorage();
+
+    // 2. Hydrate avatars from storage on startup (only valid displayable non-blob avatars)
+    setCouple(prev => {
+      const partnerAv = getUserAvatar(prev.userB.id) || getUserAvatar(prev.userB.name) || getUserAvatar(prev.userB.email);
+      const myAv = getUserAvatar(prev.userA.id) || getUserAvatar(prev.userA.name) || getUserAvatar(prev.userA.email);
+      const cleanUserA = (isValidDisplayAvatar(myAv) && !myAv?.startsWith('blob:') && myAv)
+        ? myAv
+        : ((isValidDisplayAvatar(prev.userA.avatar) && !prev.userA.avatar.startsWith('blob:') && prev.userA.avatar) ? prev.userA.avatar : INITIAL_COUPLE.userA.avatar);
+      const cleanUserB = (isValidDisplayAvatar(partnerAv) && !partnerAv?.startsWith('blob:') && partnerAv)
+        ? partnerAv
+        : ((isValidDisplayAvatar(prev.userB.avatar) && !prev.userB.avatar.startsWith('blob:') && prev.userB.avatar) ? prev.userB.avatar : INITIAL_COUPLE.userB.avatar);
+      return {
+        ...prev,
+        userA: { ...prev.userA, avatar: cleanUserA },
+        userB: { ...prev.userB, avatar: cleanUserB },
+      };
+    });
+
     void syncAuthenticatedCouple();
+    if (getStoredToken() && !isDemoMode) {
+      void refreshBackendMemories();
+    }
   }, []);
 
+  // Auto background polling sync every 6 seconds to detect unpair / pair & avatar updates in real time across tabs & devices
+  React.useEffect(() => {
+    if (!getStoredToken() || isDemoMode) return;
+    const interval = setInterval(() => {
+      void syncAuthenticatedCouple(false);
+      if (couple.isPaired) {
+        void refreshBackendMemories(true);
+      }
+    }, 6000);
+    return () => clearInterval(interval);
+  }, [isDemoMode, couple.isPaired]);
+
   // Live Cross-Tab Synchronization with BroadcastChannel & localStorage
-  const stateRef = React.useRef({ memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory });
-  stateRef.current = { memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory };
+  const stateRef = React.useRef({ memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory, gardenMetrics });
+  stateRef.current = { memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory, gardenMetrics };
 
   React.useEffect(() => {
     const unsubscribe = subscribeToSync((msg) => {
@@ -227,8 +674,81 @@ export default function App() {
         case 'SYNC_MEMORIES':
           setMemories(msg.payload);
           break;
+        case 'SYNC_MEMORY_LIKES':
+          if (msg.payload?.id) {
+            const { id, likes } = msg.payload;
+            setBackendMemories(prev => prev.map(m => m.id === id ? { ...m, likes } : m));
+          }
+          break;
+        case 'SYNC_AVATAR':
+          if (msg.payload) {
+            const { userId, name, email, avatar } = msg.payload;
+            if (userId) saveUserAvatar(userId, avatar);
+            if (name) saveUserAvatar(name, avatar);
+            if (email) saveUserAvatar(email, avatar);
+            if (userId && name) saveKnownUser({ id: userId, name, email, avatar });
+
+            setCouple(prev => {
+              const matchesB =
+                (userId && prev.userB.id && prev.userB.id.toLowerCase() === userId.toLowerCase()) ||
+                (name && prev.userB.name && prev.userB.name.toLowerCase() === name.toLowerCase()) ||
+                (email && prev.userB.email && prev.userB.email.toLowerCase() === email.toLowerCase());
+
+              const matchesA =
+                (userId && prev.userA.id && prev.userA.id.toLowerCase() === userId.toLowerCase()) ||
+                (name && prev.userA.name && prev.userA.name.toLowerCase() === name.toLowerCase()) ||
+                (email && prev.userA.email && prev.userA.email.toLowerCase() === email.toLowerCase());
+
+              if (!matchesA && !matchesB) return prev;
+
+              const next = {
+                ...prev,
+                userA: matchesA ? { ...prev.userA, avatar } : prev.userA,
+                userB: matchesB ? { ...prev.userB, avatar } : prev.userB,
+              };
+              saveStoredData(STORAGE_KEYS.COUPLE, next);
+              return next;
+            });
+          }
+          break;
         case 'SYNC_COUPLE':
-          setCouple(msg.payload);
+          if (msg.payload) {
+            setCouple(prev => {
+              const isPartner =
+                (msg.payload.userA?.id && prev.userB.id && msg.payload.userA.id.toLowerCase() === prev.userB.id.toLowerCase()) ||
+                (msg.payload.userA?.name && prev.userB.name && msg.payload.userA.name.toLowerCase() === prev.userB.name.toLowerCase());
+
+              if (isPartner) {
+                const next = {
+                  ...prev,
+                  startDate: msg.payload.startDate || prev.startDate,
+                  lovePoints: msg.payload.lovePoints ?? prev.lovePoints,
+                  coupleId: msg.payload.coupleId || prev.coupleId,
+                  userB: {
+                    ...prev.userB,
+                    avatar: msg.payload.userA.avatar || prev.userB.avatar,
+                    status: msg.payload.userA.status || prev.userB.status,
+                    activity: msg.payload.userA.activity ?? prev.userB.activity,
+                    isOnline: msg.payload.userA.isOnline ?? prev.userB.isOnline,
+                  }
+                };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
+              }
+
+              if (msg.payload.userA?.id && prev.userA.id && msg.payload.userA.id.toLowerCase() === prev.userA.id.toLowerCase()) {
+                return msg.payload;
+              }
+
+              return prev;
+            });
+
+            if (msg.payload?.isPaired === false) {
+              setCurrentScreen(curr => (['home', 'shared', 'chat', 'planner', 'garden'].includes(curr) ? 'pairing' : curr));
+            } else if (msg.payload?.isPaired === true) {
+              setCurrentScreen(curr => (curr === 'pairing' ? 'home' : curr));
+            }
+          }
           break;
         case 'SYNC_ADMIN_USERS':
           setAdminUsers(msg.payload);
@@ -245,6 +765,12 @@ export default function App() {
         case 'SYNC_POINT_HISTORY':
           setPointHistory(msg.payload);
           break;
+        case 'SYNC_GARDEN_METRICS':
+          if (msg.payload) {
+            setGardenMetrics(msg.payload);
+            saveStoredData(STORAGE_KEYS.GARDEN_METRICS, msg.payload);
+          }
+          break;
         case 'REQUEST_SYNC':
           broadcastMessage('SYNC_ALL', stateRef.current);
           break;
@@ -257,6 +783,7 @@ export default function App() {
             if (msg.payload.adminMetrics) setAdminMetrics(msg.payload.adminMetrics);
             if (msg.payload.datePlans) setDatePlans(msg.payload.datePlans);
             if (msg.payload.pointHistory) setPointHistory(msg.payload.pointHistory);
+            if (msg.payload.gardenMetrics) setGardenMetrics(msg.payload.gardenMetrics);
           }
           break;
       }
@@ -391,9 +918,19 @@ export default function App() {
   };
 
   // -----------------------------------------------------------------
-  // INTERACTION HANDLERS
+  // INTERACTION HANDLERS (CHĂM SÓC CÂY CÓ COOLDOWN, HẠN MỨC & THỜI GIAN THỰC)
   // -----------------------------------------------------------------
   const handleWaterGarden = (e?: React.MouseEvent) => {
+    // 1. Calculate decayed metrics first based on UTC time
+    const currentDecayed = calculateDecayedMetrics(gardenMetrics);
+    const cooldownRemaining = getCooldownRemaining(currentDecayed.lastWaterUtc);
+
+    // Chặn spam nếu đang trong cooldown hoặc đã đạt 100%
+    if (cooldownRemaining > 0 || currentDecayed.moisture >= 100 || isWatering) {
+      playSound('error');
+      return;
+    }
+
     playSound('water');
     setIsWatering(true);
     triggerHeartBurst(e);
@@ -401,13 +938,27 @@ export default function App() {
     setTimeout(() => {
       setIsWatering(false);
       playSound('success');
-      addPoints(5, 'Tưới nước cho cây tình yêu', couple.userA.name);
+
+      const nowIso = new Date().toISOString();
+      const nextMoisture = Math.min(100, currentDecayed.moisture + GARDEN_CONFIG.ACTION_BOOST.WATER_MOISTURE);
+      const nextMetrics: GardenEcoMetrics = {
+        ...currentDecayed,
+        moisture: nextMoisture,
+        lastWaterUtc: nowIso,
+        lastUpdateUtc: nowIso,
+      };
+
+      setGardenMetrics(nextMetrics);
+      saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+      broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+      addPoints(GARDEN_CONFIG.ACTION_POINTS.WATER, 'Tưới nước cho cây tình yêu', couple.userA.name, 'water');
 
       setNotifications(prev => [
         {
           id: `notif_${Date.now()}`,
           title: 'Vườn hoa đã được tưới',
-          message: '🌸 Cây tình yêu tràn đầy sức sống (+5 Love Points)!',
+          message: `🌸 Cây tình yêu tràn đầy sức sống (+${GARDEN_CONFIG.ACTION_POINTS.WATER} Love Points, Độ ẩm ${nextMoisture}%)!`,
           time: 'Vừa xong',
           type: 'garden',
           read: false
@@ -418,6 +969,14 @@ export default function App() {
   };
 
   const handleFertilizeGarden = (e?: React.MouseEvent) => {
+    const currentDecayed = calculateDecayedMetrics(gardenMetrics);
+    const cooldownRemaining = getCooldownRemaining(currentDecayed.lastFertilizeUtc);
+
+    if (cooldownRemaining > 0 || currentDecayed.freshness >= 100 || isFertilizing) {
+      playSound('error');
+      return;
+    }
+
     playSound('click');
     setIsFertilizing(true);
     triggerHeartBurst(e);
@@ -425,13 +984,27 @@ export default function App() {
     setTimeout(() => {
       setIsFertilizing(false);
       playSound('success');
-      addPoints(10, 'Bón phân hữu cơ & vun xới đất', couple.userA.name, 'fertilize');
+
+      const nowIso = new Date().toISOString();
+      const nextFreshness = Math.min(100, currentDecayed.freshness + GARDEN_CONFIG.ACTION_BOOST.FERTILIZE_FRESHNESS);
+      const nextMetrics: GardenEcoMetrics = {
+        ...currentDecayed,
+        freshness: nextFreshness,
+        lastFertilizeUtc: nowIso,
+        lastUpdateUtc: nowIso,
+      };
+
+      setGardenMetrics(nextMetrics);
+      saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+      broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+      addPoints(GARDEN_CONFIG.ACTION_POINTS.FERTILIZE, 'Bón phân hữu cơ & vun xới đất', couple.userA.name, 'fertilize');
 
       setNotifications(prev => [
         {
           id: `notif_${Date.now()}`,
           title: 'Đất vườn đã được bón phân',
-          message: `🌿 ${couple.userA.name} vừa bón dưỡng chất cho đất (+10 Love Points)!`,
+          message: `🌿 ${couple.userA.name} vừa bón dưỡng chất cho đất (+${GARDEN_CONFIG.ACTION_POINTS.FERTILIZE} Love Points, Tươi tốt ${nextFreshness}%)!`,
           time: 'Vừa xong',
           type: 'garden',
           read: false
@@ -442,6 +1015,14 @@ export default function App() {
   };
 
   const handleSunGarden = (e?: React.MouseEvent) => {
+    const currentDecayed = calculateDecayedMetrics(gardenMetrics);
+    const cooldownRemaining = getCooldownRemaining(currentDecayed.lastSunUtc);
+
+    if (cooldownRemaining > 0 || currentDecayed.sunlight >= 100 || isSunbathing) {
+      playSound('error');
+      return;
+    }
+
     playSound('chime');
     setIsSunbathing(true);
     triggerHeartBurst(e);
@@ -449,13 +1030,27 @@ export default function App() {
     setTimeout(() => {
       setIsSunbathing(false);
       playSound('success');
-      addPoints(5, 'Tắm nắng ấm ban mai cho mầm hoa', couple.userA.name, 'sun');
+
+      const nowIso = new Date().toISOString();
+      const nextSun = Math.min(100, currentDecayed.sunlight + GARDEN_CONFIG.ACTION_BOOST.SUNBATH_SUNLIGHT);
+      const nextMetrics: GardenEcoMetrics = {
+        ...currentDecayed,
+        sunlight: nextSun,
+        lastSunUtc: nowIso,
+        lastUpdateUtc: nowIso,
+      };
+
+      setGardenMetrics(nextMetrics);
+      saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+      broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+      addPoints(GARDEN_CONFIG.ACTION_POINTS.SUNBATH, 'Tắm nắng ấm ban mai cho mầm hoa', couple.userA.name, 'sun');
 
       setNotifications(prev => [
         {
           id: `notif_${Date.now()}`,
           title: 'Mầm hoa đã đón ánh nắng',
-          message: `☀️ Cây tình yêu quang hợp tươi tốt dưới nắng ấm (+5 Love Points)!`,
+          message: `☀️ Cây tình yêu quang hợp tươi tốt (+${GARDEN_CONFIG.ACTION_POINTS.SUNBATH} Love Points, Ánh nắng ${nextSun}%)!`,
           time: 'Vừa xong',
           type: 'garden',
           read: false
@@ -463,6 +1058,40 @@ export default function App() {
         ...prev
       ]);
     }, 900);
+  };
+
+  // Handler khi hoàn thành cây và chuyển sang chu kỳ cây mới
+  const handleEvolveTree = () => {
+    const nowIso = new Date().toISOString();
+    const nextMetrics: GardenEcoMetrics = {
+      moisture: GARDEN_CONFIG.INITIAL_STATS.MOISTURE,
+      freshness: GARDEN_CONFIG.INITIAL_STATS.FRESHNESS,
+      sunlight: GARDEN_CONFIG.INITIAL_STATS.SUNLIGHT,
+      lastUpdateUtc: nowIso,
+      lastWaterUtc: null,
+      lastFertilizeUtc: null,
+      lastSunUtc: null,
+      completedCycles: (gardenMetrics.completedCycles || 0) + 1,
+    };
+
+    setGardenMetrics(nextMetrics);
+    saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+    broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+    // Thưởng 50 điểm hoàn thành cây
+    addPoints(50, 'Hoàn thành cây tình yêu viên mãn & Gieo mầm cây mới', couple.userA.name);
+
+    setNotifications(prev => [
+      {
+        id: `notif_${Date.now()}`,
+        title: 'Khu vườn kết trái ngọt lành!',
+        message: '🌸 Chúc mừng hai bạn đã hoàn thành một cây tình yêu viên mãn! Cây mới đã bắt đầu đâm chồi (+50 Love Points)!',
+        time: 'Vừa xong',
+        type: 'garden',
+        read: false
+      },
+      ...prev
+    ]);
   };
 
   // -----------------------------------------------------------------
@@ -567,15 +1196,23 @@ export default function App() {
     playSound('click');
   };
 
-  const handleLikeMemory = (id: string) => {
+  const handleLikeMemory = async (id: string) => {
+    // 1. Calculate next like state and persist to localStorage
+    const likesMap = getMemoryLikesMap();
+    const current = likesMap[id] || { likes: 0, isLiked: false };
+    const nextLiked = !current.isLiked;
+    const nextLikes = nextLiked ? current.likes + 1 : Math.max(0, current.likes - 1);
+    likesMap[id] = { likes: nextLikes, isLiked: nextLiked };
+    saveMemoryLikesMap(likesMap);
+
+    // 2. Update demo memories
     setMemories(prev => {
       const next = prev.map(m => {
         if (m.id === id) {
-          const nextLiked = !m.isLiked;
           return {
             ...m,
             isLiked: nextLiked,
-            likes: nextLiked ? m.likes + 1 : Math.max(0, m.likes - 1)
+            likes: nextLikes
           };
         }
         return m;
@@ -584,7 +1221,44 @@ export default function App() {
       broadcastMessage('SYNC_MEMORIES', next);
       return next;
     });
+
+    // 3. Update backend memories immediately for snappy UI
+    setBackendMemories(prev => prev.map(m => {
+      if (m.id === id) {
+        return {
+          ...m,
+          isLiked: nextLiked,
+          likes: nextLikes
+        };
+      }
+      return m;
+    }));
+
+    broadcastMessage('SYNC_MEMORY_LIKES', { id, likes: nextLikes, isLiked: nextLiked });
     playSound('ping');
+
+    // 4. Cross-device sync via hidden memory on backend: [LIKE]:<targetId>
+    if (!isDemoMode && couple.isPaired && getStoredToken()) {
+      try {
+        if (nextLiked) {
+          await memoryService.createMemory(`[LIKE]:${id}`);
+        } else {
+          const items = await memoryService.getTimeline();
+          const storedProfile = getStoredUserProfile<{ id: string }>();
+          const myId = (storedProfile?.id || couple.userA.id || '').toLowerCase();
+          const myLikeMems = items.filter(m => {
+            const creator = (m.creatorUserId || m.userId || '').toLowerCase();
+            return creator === myId && m.text === `[LIKE]:${id}`;
+          });
+          if (myLikeMems.length > 0) {
+            await Promise.all(myLikeMems.map(lm => memoryService.deleteMemory(lm.id)));
+          }
+        }
+        void refreshBackendMemories(true);
+      } catch (err) {
+        console.warn('[App] Sync like to backend failed:', err);
+      }
+    }
   };
 
   const handleSaveMemory = () => {
@@ -703,11 +1377,34 @@ export default function App() {
   };
 
   const handleUpdateNicknames = (nameA: string, nameB: string) => {
-    setCouple(prev => ({
-      ...prev,
-      userA: { ...prev.userA, name: nameA },
-      userB: { ...prev.userB, name: nameB }
-    }));
+    setCouple(prev => {
+      const otherId = prev.userB.id;
+      if (otherId && otherId !== 'usr_partner') {
+        localStorage.setItem(`lovera_partner_name_${otherId.toLowerCase()}`, nameB);
+      }
+      if (prev.coupleId) {
+        localStorage.setItem(`lovera_partner_name_${prev.coupleId}`, nameB);
+      }
+      localStorage.setItem('lovera_partner_nickname', nameB);
+
+      const next: CoupleData = {
+        ...prev,
+        userA: { ...prev.userA, name: nameA },
+        userB: { ...prev.userB, name: nameB }
+      };
+      if (prev.userB.id) {
+        saveKnownUser({ id: prev.userB.id, name: nameB });
+      }
+      saveStoredData(STORAGE_KEYS.COUPLE, next);
+      broadcastMessage('SYNC_COUPLE', next);
+
+      // Auto-publish my own name to backend memory so partner receives it
+      if (getStoredToken() && prev.coupleId && nameA && nameA !== 'Alex') {
+        memoryService.createMemory(`[PROFILE_NAME]:${nameA}`).catch(() => {});
+      }
+
+      return next;
+    });
     if (getStoredToken()) {
       authService.updateProfile({ displayName: nameA }).catch(err => {
         console.warn('[App] Real updateProfile error:', err);
@@ -733,37 +1430,95 @@ export default function App() {
     ]);
   };
 
-  const handleUpdateUserAvatar = (newAvatarUrl: string) => {
+  const handleUpdateUserAvatar = async (newAvatarUrl: string, file?: File) => {
+    const myId = couple.userA.id;
+    const myName = couple.userA.name;
+    const myEmail = couple.userA.email;
+
+    if (myId) saveUserAvatar(myId, newAvatarUrl);
+    if (myName) saveUserAvatar(myName, newAvatarUrl);
+    if (myEmail) saveUserAvatar(myEmail, newAvatarUrl);
+    saveKnownUser({ id: myId, name: myName, email: myEmail, avatar: newAvatarUrl });
+
     try {
       localStorage.setItem('lovera_alex_avatar', newAvatarUrl);
+      if (myId) localStorage.setItem(`lovera_avatar_${myId.toLowerCase()}`, newAvatarUrl);
     } catch (err) {
       console.warn('Failed to save avatar to localStorage:', err);
     }
-    setCouple(prev => ({
-      ...prev,
-      userA: { ...prev.userA, avatar: newAvatarUrl }
-    }));
+
+    setCouple(prev => {
+      const next = {
+        ...prev,
+        userA: { ...prev.userA, avatar: newAvatarUrl }
+      };
+      saveStoredData(STORAGE_KEYS.COUPLE, next);
+      return next;
+    });
+
+    broadcastMessage('SYNC_AVATAR', {
+      userId: myId,
+      name: myName,
+      email: myEmail,
+      avatar: newAvatarUrl
+    });
+
     setAdminUsers(prev => prev.map(u => {
-      if (u.id === 'usr_alex') return { ...u, avatar: newAvatarUrl };
+      if (u.id === 'usr_alex' || (myId && u.id === myId)) return { ...u, avatar: newAvatarUrl };
       return u;
     }));
+
+    if (getStoredToken() && !isDemoMode) {
+      try {
+        let uploadFile = file;
+        if (!uploadFile && newAvatarUrl.startsWith('data:')) {
+          uploadFile = dataUrlToFile(newAvatarUrl, 'avatar.jpg');
+        }
+
+        if (uploadFile) {
+          // 1. Upload to profile avatar on backend
+          try {
+            await authService.uploadAvatar(uploadFile);
+          } catch (e) {
+            console.warn('[App] uploadAvatar to backend failed:', e);
+          }
+
+          // 2. Upload shared memory with [AVATAR] tag and name so partner's device automatically downloads and displays it
+          try {
+            await memoryService.createMemory(`[AVATAR:${myName || ''}]`, uploadFile);
+          } catch (e) {
+            console.warn('[App] createMemory for avatar failed:', e);
+          }
+
+          // 3. Immediately refresh memories and link
+          void refreshBackendMemories();
+        }
+      } catch (err) {
+        console.warn('[App] Upload avatar to backend failed:', err);
+      }
+    }
   };
 
-  const handleUnpair = () => {
+
+  const handleUnpair = async () => {
     playSound('error');
-    // Generate fresh clean 6-character code
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let freshCode = 'LV';
-    for (let i = 0; i < 4; i++) {
-      freshCode += chars.charAt(Math.floor(Math.random() * chars.length));
+
+    // 1. Call Real Backend API to release the couple on the server database
+    if (!isDemoMode && getStoredToken()) {
+      try {
+        await coupleService.unpair(true);
+      } catch (err) {
+        console.warn('[App] Real unpair API failed:', err);
+      }
     }
+
     const todayStr = new Date().toISOString().split('T')[0];
 
-    // Reset couple state cleanly: User A stays logged in, partner B and shared data reset
-    setCouple(prev => ({
-      ...prev,
-      coupleId: `CP-${freshCode}`,
-      pairCode: freshCode,
+    // 2. Reset couple state cleanly: User A stays logged in, partner B and shared data reset
+    const nextCouple: CoupleData = {
+      ...couple,
+      coupleId: '',
+      pairCode: '',
       startDate: todayStr,
       isPaired: false,
       lovePoints: 0,
@@ -776,16 +1531,19 @@ export default function App() {
         isOnline: false,
         batteryLevel: 0
       }
-    }));
+    };
 
-    // Reset interaction / checkin states
+    setBackendMemories([]);
+    setCouple(nextCouple);
+    saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
+    broadcastMessage('SYNC_COUPLE', nextCouple);
 
-    // Add unpair notification
+    // 3. Add unpair notification
     setNotifications(prev => [
       {
         id: `notif_${Date.now()}`,
         title: 'Đã hủy kết nối cặp đôi',
-        message: 'Bạn đã hủy liên kết với người thương cũ. Mã ghép đôi mới đã sẵn sàng để gửi cho đối phương.',
+        message: 'Bạn đã hủy liên kết thành công trên hệ thống. Bạn có thể tạo mã mới để ghép đôi với người khác.',
         time: 'Vừa xong',
         type: 'status',
         read: false
@@ -793,14 +1551,62 @@ export default function App() {
       ...prev
     ]);
 
-    // Direct transition to Pairing Screen at 'create' (màn hình gửi mã) stage
-    setPairingInitialStage('create');
-    setPairingBannerMessage('Đã hủy kết nối cặp đôi thành công. Mã ghép đôi mới đã sẵn sàng để gửi cho người ấy!');
+    // 4. Direct transition to Pairing Screen at 'idle' stage
+    setPairingInitialStage('idle');
+    setPairingBannerMessage('Đã hủy kết nối cặp đôi thành công. Bạn có thể tạo mã mới hoặc nhập mã để ghép đôi!');
     setCurrentScreen('pairing');
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     playSound('click');
+    try {
+      if (getStoredToken()) {
+        await authService.logout();
+      }
+    } catch (err) {
+      console.warn('[App] Real logout API error:', err);
+    } finally {
+      clearStoredToken();
+    }
+
+    try {
+      localStorage.removeItem(STORAGE_KEYS.COUPLE);
+      localStorage.removeItem(STORAGE_KEYS.MEMORIES);
+      localStorage.removeItem('lovera_partner_nickname');
+    } catch {}
+
+    const loggedOutCouple: CoupleData = {
+      ...INITIAL_COUPLE,
+      coupleId: '',
+      pairCode: '',
+      isPaired: false,
+      lovePoints: 0,
+      userA: {
+        id: '',
+        name: 'Chưa đăng nhập',
+        avatar: INITIAL_COUPLE.userA.avatar,
+        email: '',
+        status: 'Away',
+        isOnline: false,
+        batteryLevel: 0,
+      },
+      userB: {
+        id: '',
+        name: 'Chưa kết nối',
+        avatar: INITIAL_COUPLE.userB.avatar,
+        email: '',
+        status: 'Away',
+        isOnline: false,
+        batteryLevel: 0,
+      },
+    };
+
+    setCouple(loggedOutCouple);
+    saveStoredData(STORAGE_KEYS.COUPLE, loggedOutCouple);
+    setBackendMemories([]);
+    setPairingBannerMessage('');
+    setPairingInitialStage('idle');
+    setIsDemoMode(false);
     setCurrentScreen('welcome');
   };
 
@@ -1045,6 +1851,7 @@ export default function App() {
                 }));
                 if (isAlreadyPaired) {
                   void syncAuthenticatedCouple();
+                  void refreshBackendMemories();
                   setCurrentScreen('home');
                 } else {
                   setPairingInitialStage('idle');
@@ -1075,6 +1882,7 @@ export default function App() {
                 }));
                 if (isAlreadyPaired) {
                   void syncAuthenticatedCouple();
+                  void refreshBackendMemories();
                   setCurrentScreen('home');
                 } else {
                   setPairingInitialStage('idle');
@@ -1102,36 +1910,43 @@ export default function App() {
               }}
               onPairSuccess={(partnerInfo) => {
                 const partnerName = typeof partnerInfo === 'string' ? partnerInfo : partnerInfo.name;
-                const partnerEmail = typeof partnerInfo === 'string' ? 'sam@lovera.app' : (partnerInfo.email || 'sam@lovera.app');
+                const partnerEmail = typeof partnerInfo === 'string' ? 'partner@lovera.app' : (partnerInfo.email || '');
                 const partnerAvatar = typeof partnerInfo === 'string' ? INITIAL_COUPLE.userB.avatar : (partnerInfo.avatar || INITIAL_COUPLE.userB.avatar);
-                setCouple(prev => ({
-                  ...prev,
+                const partnerId = typeof partnerInfo === 'string' ? 'usr_partner' : (partnerInfo.id || 'usr_partner');
+                if (partnerId && partnerName && partnerName !== 'Người Thương') {
+                  saveKnownUser({ id: partnerId, name: partnerName });
+                  if (partnerId !== 'usr_partner') {
+                    localStorage.setItem(`lovera_partner_name_${partnerId.toLowerCase()}`, partnerName);
+                  }
+                  localStorage.setItem('lovera_partner_nickname', partnerName);
+                }
+                const savedPartnerName =
+                  (partnerId && partnerId !== 'usr_partner' ? localStorage.getItem(`lovera_partner_name_${partnerId.toLowerCase()}`) : null) ||
+                  (localStorage.getItem('lovera_partner_nickname') && localStorage.getItem('lovera_partner_nickname') !== 'Người Thương' ? localStorage.getItem('lovera_partner_nickname') : null);
+
+                const finalPartnerName = (partnerName && partnerName !== 'Người Thương' ? partnerName : '') || savedPartnerName || 'Người Thương';
+
+                const nextCouple: CoupleData = {
+                  ...couple,
                   isPaired: true,
-                  startDate: new Date().toISOString().split('T')[0],
-                  lovePoints: 100,
+                  startDate: couple.startDate || new Date().toISOString().split('T')[0],
+                  lovePoints: couple.lovePoints > 0 ? couple.lovePoints : 100,
                   userB: {
-                    ...prev.userB,
-                    id: typeof partnerInfo === 'string' ? 'usr_partner' : (partnerInfo.id || 'usr_partner'),
-                    name: partnerName,
+                    ...couple.userB,
+                    id: partnerId,
+                    name: finalPartnerName,
                     email: partnerEmail,
                     avatar: partnerAvatar,
                     status: 'Available',
                     isOnline: true,
                   }
-                }));
+                };
+                setCouple(nextCouple);
+                saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
+                broadcastMessage('SYNC_COUPLE', nextCouple);
                 setPairingBannerMessage('');
-                setNotifications(prev => [
-                  {
-                    id: `notif_${Date.now()}`,
-                    title: 'Ghép đôi thành công!',
-                    message: `Bạn và ${partnerName} đã chính thức kết nối không gian yêu thương.`,
-                    time: 'Vừa xong',
-                    type: 'status',
-                    read: false
-                  },
-                  ...prev
-                ]);
                 setCurrentScreen('home');
+                void syncAuthenticatedCouple();
               }}
             />
           )}
@@ -1150,7 +1965,10 @@ export default function App() {
           {currentScreen === 'home' && (
             <HomeScreen
               couple={couple}
-              recentMemories={memories}
+              onUpdatePartnerNickname={(newName) => handleUpdateNicknames(couple.userA.name, newName)}
+              recentMemories={isDemoMode ? memories : backendMemories}
+              isBackendMode={!isDemoMode}
+              isLoadingMemories={!isDemoMode && isLoadingBackendMemories}
               onUpdateAvatar={handleUpdateUserAvatar}
               onOpenStatusModal={() => {
                 playSound('click');
@@ -1211,6 +2029,8 @@ export default function App() {
               isWatering={isWatering}
               isFertilizing={isFertilizing}
               isSunbathing={isSunbathing}
+              ecoMetrics={gardenMetrics}
+              onEvolveTree={handleEvolveTree}
             />
           )}
 
@@ -1223,6 +2043,11 @@ export default function App() {
               onUnpair={handleUnpair}
               onLogout={handleLogout}
               onResetDemoFlow={(scr) => {
+                if (scr === 'welcome' || scr === 'login' || scr === 'register') {
+                  void handleLogout();
+                  setCurrentScreen(scr);
+                  return;
+                }
                 if (scr === 'pairing') {
                   setPairingInitialStage('idle');
                   setPairingBannerMessage('');
@@ -1316,8 +2141,6 @@ export default function App() {
         ))}
 
       </main>
-
-      
 
     </div>
   );
