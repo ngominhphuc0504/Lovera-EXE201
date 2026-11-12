@@ -1,17 +1,19 @@
 import React from 'react';
-import { X, Bell, Droplets, Sparkles, CheckCheck } from 'lucide-react';
+import { X, Bell, Droplets, Sparkles, CheckCheck, Camera } from 'lucide-react';
 import { AppNotification } from '../../types';
 
 interface NotificationsModalProps {
   notifications: AppNotification[];
   onClose: () => void;
   onMarkAllRead: () => void;
+  onNotificationClick?: (notif: AppNotification) => void;
 }
 
 export const NotificationsModal: React.FC<NotificationsModalProps> = ({
   notifications,
   onClose,
   onMarkAllRead,
+  onNotificationClick,
 }) => {
   const getIcon = (type: AppNotification['type']) => {
     switch (type) {
@@ -19,6 +21,8 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
         return <Droplets className="w-4 h-4 text-emerald-500 fill-emerald-100" />;
       case 'planner':
         return <Sparkles className="w-4 h-4 text-purple-500 fill-purple-100" />;
+      case 'memory':
+        return <Camera className="w-4 h-4 text-rose-500 fill-rose-100" />;
       default:
         return <Bell className="w-4 h-4 text-stone-500" />;
     }
@@ -61,10 +65,13 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
             notifications.map((notif) => (
               <div
                 key={notif.id}
-                className={`p-3.5 rounded-2xl border transition-all flex items-start gap-3 ${
+                onClick={() => onNotificationClick?.(notif)}
+                role="button"
+                tabIndex={0}
+                className={`p-3.5 rounded-2xl border transition-all flex items-start gap-3 cursor-pointer ${
                   notif.read
-                    ? 'bg-stone-50/70 border-stone-100 opacity-80'
-                    : 'bg-rose-50/40 border-rose-200/90 shadow-2xs'
+                    ? 'bg-stone-50/70 border-stone-100 opacity-80 hover:bg-stone-100/70'
+                    : 'bg-rose-50/40 border-rose-200/90 shadow-2xs hover:bg-rose-50/70 hover:border-rose-300'
                 }`}
               >
                 <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-xs border border-rose-100 shrink-0 mt-0.5">
@@ -72,9 +79,14 @@ export const NotificationsModal: React.FC<NotificationsModalProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <h4 className="font-bold text-xs text-stone-900 leading-tight truncate">
-                      {notif.title}
-                    </h4>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <h4 className="font-bold text-xs text-stone-900 leading-tight truncate">
+                        {notif.title}
+                      </h4>
+                      {!notif.read && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 animate-pulse"></span>
+                      )}
+                    </div>
                     <span className="text-[10px] text-stone-400 shrink-0 ml-1">{notif.time}</span>
                   </div>
                   <p className="text-[11px] text-stone-600 leading-relaxed">{notif.message}</p>

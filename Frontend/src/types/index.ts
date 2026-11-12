@@ -60,6 +60,8 @@ export interface ChatMessage {
   timestamp: string;
   suggestions?: string[];
   isGemini?: boolean;
+  data?: any;
+  sources?: Array<{ url: string; title: string }>;
 }
 
 export type MemoryTag = 'Hẹn hò' | 'Kỷ niệm' | 'Du lịch' | 'Đời thường' | 'Khoảnh khắc';
@@ -158,6 +160,19 @@ export interface DatePlan {
 
 export type GardenStage = 1 | 2 | 3 | 4 | 5;
 
+export type StageStatus = 'COMPLETED' | 'CURRENT' | 'LOCKED';
+
+export interface GardenEcoMetrics {
+  moisture: number; // 0 - 100 (%)
+  freshness: number; // 0 - 100 (%)
+  sunlight: number; // 0 - 100 (%)
+  lastUpdateUtc: string; // ISO 8601 UTC string
+  lastWaterUtc?: string | null;
+  lastFertilizeUtc?: string | null;
+  lastSunUtc?: string | null;
+  completedCycles?: number;
+}
+
 export type GardenSeason = 'spring' | 'summer' | 'autumn' | 'winter';
 
 export interface PointHistoryItem {
@@ -176,4 +191,5 @@ export interface AppNotification {
   time: string;
   type: 'garden' | 'planner' | 'status' | 'memory';
   read: boolean;
+  targetId?: string;
 }

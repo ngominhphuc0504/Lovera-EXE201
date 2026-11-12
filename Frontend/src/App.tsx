@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType, MemoryItem, MemoryTag, PointHistoryItem } from './types';
+import { Screen, CoupleData, DatePlan, DateType, ConnectionActivityType, ConnectionStatusType, MemoryItem, MemoryTag, PointHistoryItem, GardenEcoMetrics } from './types';
 import { 
   INITIAL_COUPLE, 
   INITIAL_DATE_PLANS, 
@@ -8,6 +8,8 @@ import {
   INITIAL_MEMORIES 
 } from './data/mockData';
 import { playSound } from './utils/audio';
+import { GARDEN_CONFIG } from './constants/gardenConfig';
+import { calculateDecayedMetrics, getCooldownRemaining, isTreeReadyToEvolve } from './utils/gardenDecay';
 
 import { Header } from './components/common/Header';
 import { BottomNav } from './components/common/BottomNav';
@@ -91,6 +93,24 @@ export default function App() {
   const [adminMetrics, setAdminMetrics] = useState<AdminSystemMetric>(() =>
     loadStoredData(STORAGE_KEYS.ADMIN_METRICS, INITIAL_ADMIN_METRICS)
   );
+
+  const INITIAL_GARDEN_METRICS: GardenEcoMetrics = {
+    moisture: GARDEN_CONFIG.INITIAL_STATS.MOISTURE,
+    freshness: GARDEN_CONFIG.INITIAL_STATS.FRESHNESS,
+    sunlight: GARDEN_CONFIG.INITIAL_STATS.SUNLIGHT,
+    lastUpdateUtc: new Date().toISOString(),
+    lastWaterUtc: null,
+    lastFertilizeUtc: null,
+    lastSunUtc: null,
+    completedCycles: 0,
+  };
+
+  const [gardenMetrics, setGardenMetrics] = useState<GardenEcoMetrics>(() => {
+    const loaded = loadStoredData<GardenEcoMetrics>(STORAGE_KEYS.GARDEN_METRICS, INITIAL_GARDEN_METRICS);
+    const decayed = calculateDecayedMetrics(loaded);
+    saveStoredData(STORAGE_KEYS.GARDEN_METRICS, decayed);
+    return decayed;
+  });
   const [previousScreen, setPreviousScreen] = useState<Screen>('welcome');
   const lastSyncedPartnerAvatarMemId = React.useRef<string>('');
   const lastSyncedMyAvatarMemId = React.useRef<string>('');
@@ -645,8 +665,8 @@ export default function App() {
   }, [isDemoMode, couple.isPaired]);
 
   // Live Cross-Tab Synchronization with BroadcastChannel & localStorage
-  const stateRef = React.useRef({ memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory });
-  stateRef.current = { memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory };
+  const stateRef = React.useRef({ memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory, gardenMetrics });
+  stateRef.current = { memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory, gardenMetrics };
 
   React.useEffect(() => {
     const unsubscribe = subscribeToSync((msg) => {
@@ -745,6 +765,12 @@ export default function App() {
         case 'SYNC_POINT_HISTORY':
           setPointHistory(msg.payload);
           break;
+        case 'SYNC_GARDEN_METRICS':
+          if (msg.payload) {
+            setGardenMetrics(msg.payload);
+            saveStoredData(STORAGE_KEYS.GARDEN_METRICS, msg.payload);
+          }
+          break;
         case 'REQUEST_SYNC':
           broadcastMessage('SYNC_ALL', stateRef.current);
           break;
@@ -757,6 +783,7 @@ export default function App() {
             if (msg.payload.adminMetrics) setAdminMetrics(msg.payload.adminMetrics);
             if (msg.payload.datePlans) setDatePlans(msg.payload.datePlans);
             if (msg.payload.pointHistory) setPointHistory(msg.payload.pointHistory);
+            if (msg.payload.gardenMetrics) setGardenMetrics(msg.payload.gardenMetrics);
           }
           break;
       }
@@ -891,9 +918,19 @@ export default function App() {
   };
 
   // -----------------------------------------------------------------
-  // INTERACTION HANDLERS
+  // INTERACTION HANDLERS (CHĂM SÓC CÂY CÓ COOLDOWN, HẠN MỨC & THỜI GIAN THỰC)
   // -----------------------------------------------------------------
   const handleWaterGarden = (e?: React.MouseEvent) => {
+    // 1. Calculate decayed metrics first based on UTC time
+    const currentDecayed = calculateDecayedMetrics(gardenMetrics);
+    const cooldownRemaining = getCooldownRemaining(currentDecayed.lastWaterUtc);
+
+    // Chặn spam nếu đang trong cooldown hoặc đã đạt 100%
+    if (cooldownRemaining > 0 || currentDecayed.moisture >= 100 || isWatering) {
+      playSound('error');
+      return;
+    }
+
     playSound('water');
     setIsWatering(true);
     triggerHeartBurst(e);
@@ -901,13 +938,27 @@ export default function App() {
     setTimeout(() => {
       setIsWatering(false);
       playSound('success');
-      addPoints(5, 'Tưới nước cho cây tình yêu', couple.userA.name);
+
+      const nowIso = new Date().toISOString();
+      const nextMoisture = Math.min(100, currentDecayed.moisture + GARDEN_CONFIG.ACTION_BOOST.WATER_MOISTURE);
+      const nextMetrics: GardenEcoMetrics = {
+        ...currentDecayed,
+        moisture: nextMoisture,
+        lastWaterUtc: nowIso,
+        lastUpdateUtc: nowIso,
+      };
+
+      setGardenMetrics(nextMetrics);
+      saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+      broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+      addPoints(GARDEN_CONFIG.ACTION_POINTS.WATER, 'Tưới nước cho cây tình yêu', couple.userA.name, 'water');
 
       setNotifications(prev => [
         {
           id: `notif_${Date.now()}`,
           title: 'Vườn hoa đã được tưới',
-          message: '🌸 Cây tình yêu tràn đầy sức sống (+5 Love Points)!',
+          message: `🌸 Cây tình yêu tràn đầy sức sống (+${GARDEN_CONFIG.ACTION_POINTS.WATER} Love Points, Độ ẩm ${nextMoisture}%)!`,
           time: 'Vừa xong',
           type: 'garden',
           read: false
@@ -918,6 +969,14 @@ export default function App() {
   };
 
   const handleFertilizeGarden = (e?: React.MouseEvent) => {
+    const currentDecayed = calculateDecayedMetrics(gardenMetrics);
+    const cooldownRemaining = getCooldownRemaining(currentDecayed.lastFertilizeUtc);
+
+    if (cooldownRemaining > 0 || currentDecayed.freshness >= 100 || isFertilizing) {
+      playSound('error');
+      return;
+    }
+
     playSound('click');
     setIsFertilizing(true);
     triggerHeartBurst(e);
@@ -925,13 +984,27 @@ export default function App() {
     setTimeout(() => {
       setIsFertilizing(false);
       playSound('success');
-      addPoints(10, 'Bón phân hữu cơ & vun xới đất', couple.userA.name, 'fertilize');
+
+      const nowIso = new Date().toISOString();
+      const nextFreshness = Math.min(100, currentDecayed.freshness + GARDEN_CONFIG.ACTION_BOOST.FERTILIZE_FRESHNESS);
+      const nextMetrics: GardenEcoMetrics = {
+        ...currentDecayed,
+        freshness: nextFreshness,
+        lastFertilizeUtc: nowIso,
+        lastUpdateUtc: nowIso,
+      };
+
+      setGardenMetrics(nextMetrics);
+      saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+      broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+      addPoints(GARDEN_CONFIG.ACTION_POINTS.FERTILIZE, 'Bón phân hữu cơ & vun xới đất', couple.userA.name, 'fertilize');
 
       setNotifications(prev => [
         {
           id: `notif_${Date.now()}`,
           title: 'Đất vườn đã được bón phân',
-          message: `🌿 ${couple.userA.name} vừa bón dưỡng chất cho đất (+10 Love Points)!`,
+          message: `🌿 ${couple.userA.name} vừa bón dưỡng chất cho đất (+${GARDEN_CONFIG.ACTION_POINTS.FERTILIZE} Love Points, Tươi tốt ${nextFreshness}%)!`,
           time: 'Vừa xong',
           type: 'garden',
           read: false
@@ -942,6 +1015,14 @@ export default function App() {
   };
 
   const handleSunGarden = (e?: React.MouseEvent) => {
+    const currentDecayed = calculateDecayedMetrics(gardenMetrics);
+    const cooldownRemaining = getCooldownRemaining(currentDecayed.lastSunUtc);
+
+    if (cooldownRemaining > 0 || currentDecayed.sunlight >= 100 || isSunbathing) {
+      playSound('error');
+      return;
+    }
+
     playSound('chime');
     setIsSunbathing(true);
     triggerHeartBurst(e);
@@ -949,13 +1030,27 @@ export default function App() {
     setTimeout(() => {
       setIsSunbathing(false);
       playSound('success');
-      addPoints(5, 'Tắm nắng ấm ban mai cho mầm hoa', couple.userA.name, 'sun');
+
+      const nowIso = new Date().toISOString();
+      const nextSun = Math.min(100, currentDecayed.sunlight + GARDEN_CONFIG.ACTION_BOOST.SUNBATH_SUNLIGHT);
+      const nextMetrics: GardenEcoMetrics = {
+        ...currentDecayed,
+        sunlight: nextSun,
+        lastSunUtc: nowIso,
+        lastUpdateUtc: nowIso,
+      };
+
+      setGardenMetrics(nextMetrics);
+      saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+      broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+      addPoints(GARDEN_CONFIG.ACTION_POINTS.SUNBATH, 'Tắm nắng ấm ban mai cho mầm hoa', couple.userA.name, 'sun');
 
       setNotifications(prev => [
         {
           id: `notif_${Date.now()}`,
           title: 'Mầm hoa đã đón ánh nắng',
-          message: `☀️ Cây tình yêu quang hợp tươi tốt dưới nắng ấm (+5 Love Points)!`,
+          message: `☀️ Cây tình yêu quang hợp tươi tốt (+${GARDEN_CONFIG.ACTION_POINTS.SUNBATH} Love Points, Ánh nắng ${nextSun}%)!`,
           time: 'Vừa xong',
           type: 'garden',
           read: false
@@ -963,6 +1058,40 @@ export default function App() {
         ...prev
       ]);
     }, 900);
+  };
+
+  // Handler khi hoàn thành cây và chuyển sang chu kỳ cây mới
+  const handleEvolveTree = () => {
+    const nowIso = new Date().toISOString();
+    const nextMetrics: GardenEcoMetrics = {
+      moisture: GARDEN_CONFIG.INITIAL_STATS.MOISTURE,
+      freshness: GARDEN_CONFIG.INITIAL_STATS.FRESHNESS,
+      sunlight: GARDEN_CONFIG.INITIAL_STATS.SUNLIGHT,
+      lastUpdateUtc: nowIso,
+      lastWaterUtc: null,
+      lastFertilizeUtc: null,
+      lastSunUtc: null,
+      completedCycles: (gardenMetrics.completedCycles || 0) + 1,
+    };
+
+    setGardenMetrics(nextMetrics);
+    saveStoredData(STORAGE_KEYS.GARDEN_METRICS, nextMetrics);
+    broadcastMessage('SYNC_GARDEN_METRICS', nextMetrics);
+
+    // Thưởng 50 điểm hoàn thành cây
+    addPoints(50, 'Hoàn thành cây tình yêu viên mãn & Gieo mầm cây mới', couple.userA.name);
+
+    setNotifications(prev => [
+      {
+        id: `notif_${Date.now()}`,
+        title: 'Khu vườn kết trái ngọt lành!',
+        message: '🌸 Chúc mừng hai bạn đã hoàn thành một cây tình yêu viên mãn! Cây mới đã bắt đầu đâm chồi (+50 Love Points)!',
+        time: 'Vừa xong',
+        type: 'garden',
+        read: false
+      },
+      ...prev
+    ]);
   };
 
   // -----------------------------------------------------------------
@@ -1900,6 +2029,8 @@ export default function App() {
               isWatering={isWatering}
               isFertilizing={isFertilizing}
               isSunbathing={isSunbathing}
+              ecoMetrics={gardenMetrics}
+              onEvolveTree={handleEvolveTree}
             />
           )}
 
