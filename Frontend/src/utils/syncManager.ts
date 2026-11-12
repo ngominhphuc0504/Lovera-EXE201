@@ -89,7 +89,13 @@ export function saveStoredData<T>(key: string, value: T): boolean {
     console.warn(`[SyncManager] Failed to save key "${key}" to localStorage:`, err);
     cleanupOversizedStorage();
     try {
-      localStorage.removeItem('lovera_alex_avatar');
+      if (key === 'lovera_couple' && typeof value === 'object' && value !== null) {
+        const safe = { ...value } as any;
+        if (safe.userA?.avatar?.length > 10000) safe.userA = { ...safe.userA, avatar: '' };
+        if (safe.userB?.avatar?.length > 10000) safe.userB = { ...safe.userB, avatar: '' };
+        localStorage.setItem(key, JSON.stringify(safe));
+        return true;
+      }
       localStorage.setItem(key, JSON.stringify(value));
       return true;
     } catch {}

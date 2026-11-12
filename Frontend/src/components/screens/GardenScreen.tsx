@@ -15,7 +15,9 @@ import {
   Filter,
   User,
   Users,
-  Award
+  Award,
+  Lock,
+  AlertCircle
 } from 'lucide-react';
 import { CoupleData, PointHistoryItem, GardenStage, GardenSeason } from '../../types';
 import { playSound } from '../../utils/audio';
@@ -56,6 +58,41 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
   // Stage 5: Cổ Thụ Bách Niên Bốn Mùa (1000+ pts)
   const realStage: GardenStage = lovePoints >= 1000 ? 5 : lovePoints >= 500 ? 4 : lovePoints >= 300 ? 3 : lovePoints >= 100 ? 2 : 1;
   const [previewStage, setPreviewStage] = useState<GardenStage>(realStage);
+
+  // Toast notification for user actions and locked stage clicks
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // History list expand/collapse state (Default: show top 3 activities)
+  const [isHistoryExpanded, setIsHistoryExpanded] = useState<boolean>(false);
+
+  // Auto-dismiss toast message after 3.5s
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => {
+      setToastMessage(null);
+    }, 3500);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+
+  // Protected preview stage: CANNOT exceed realStage (locked stages are grayed out until reached)
+  const effectivePreviewStage: GardenStage = previewStage > realStage ? realStage : previewStage;
+
+  const getStageStatus = (stage: GardenStage, currentStage: GardenStage): 'COMPLETED' | 'CURRENT' | 'LOCKED' => {
+    if (stage < currentStage) return 'COMPLETED';
+    if (stage === currentStage) return 'CURRENT';
+    return 'LOCKED';
+  };
+
+  const handleSelectStage = (stg: GardenStage) => {
+    const status = getStageStatus(stg, realStage);
+    if (status === 'LOCKED') {
+      playSound('error');
+      setToastMessage(`Cấp ${stg} đang khóa 🔒. Hãy cùng người thương chăm sóc cây để mở khóa nhé!`);
+      return;
+    }
+    playSound('click');
+    setPreviewStage(stg);
+  };
 
   // Active season state with persistence
   const [selectedSeason, setSelectedSeason] = useState<GardenSeason>(() => {
@@ -140,7 +177,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
       icon: '✨',
       tagColor: 'bg-gradient-to-r from-amber-50 to-purple-50 text-purple-900 border-purple-200'
     }
-  }[previewStage];
+  }[effectivePreviewStage];
 
   const SEASON_CONFIG = {
     spring: {
@@ -357,10 +394,26 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           </div>
         </div>
 
+        {/* Toast Warning/Notification Bar */}
+        {toastMessage && (
+          <div className="mb-2 p-2.5 bg-rose-50/95 backdrop-blur-md border border-rose-200 text-rose-800 text-xs rounded-2xl flex items-center justify-between shadow-sm animate-fade-in z-30 relative">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span className="font-semibold">{toastMessage}</span>
+            </div>
+            <button 
+              onClick={() => setToastMessage(null)} 
+              className="text-stone-400 hover:text-stone-600 text-xs font-bold px-1.5 py-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Central Garden Scene: High-End Botanical SVG Tree */}
         <div className="relative w-full flex flex-col items-center justify-center my-1 z-10 min-h-[250px] sm:min-h-[270px]">
           <GardenTreeVisual
-            stage={previewStage}
+            stage={effectivePreviewStage}
             season={selectedSeason}
             userAName={userA.name}
             userBName={userB.name}
@@ -409,8 +462,8 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
         {/* Stage Timeline Selector: 5 Stages */}
         <div className="grid grid-cols-5 gap-1 p-1 bg-white/85 backdrop-blur-md rounded-2xl border border-white/80 mb-3 shadow-2xs z-10 relative">
           {([1, 2, 3, 4, 5] as GardenStage[]).map((stg) => {
-            const isSelected = previewStage === stg;
-            const isReached = realStage >= stg;
+            const status = getStageStatus(stg, realStage);
+            const isSelected = effectivePreviewStage === stg;
             const labels = {
               1: '🌱 Cấp 1',
               2: '🌿 Cấp 2',
@@ -422,18 +475,40 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
             return (
               <button
                 key={stg}
-                onClick={() => {
-                  playSound('click');
-                  setPreviewStage(stg);
-                }}
-                className={`py-1.5 px-0.5 rounded-xl text-[10px] font-bold transition-all flex flex-col items-center justify-center cursor-pointer ${
-                  isSelected
-                    ? 'bg-emerald-600 text-white shadow-xs scale-102'
-                    : 'text-stone-600 hover:text-stone-900 hover:bg-emerald-50'
+                onClick={() => handleSelectStage(stg)}
+                title={status === 'LOCKED' ? `Cấp ${stg} đang khóa 🔒. Hãy cùng người thương chăm sóc cây để mở khóa nhé!` : `Xem cây Cấp ${stg}`}
+                className={`py-1.5 px-0.5 rounded-xl text-[10px] font-bold transition-all flex flex-col items-center justify-center select-none ${
+                  status === 'LOCKED'
+                    ? 'bg-stone-100/90 text-stone-400 border border-stone-200/90 cursor-not-allowed opacity-60 grayscale hover:bg-stone-100/90'
+                    : status === 'CURRENT'
+                    ? isSelected
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs ring-2 ring-emerald-400 scale-102 cursor-pointer'
+                      : 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-extrabold cursor-pointer'
+                    : isSelected
+                    ? 'bg-emerald-600 text-white shadow-xs scale-102 cursor-pointer'
+                    : 'bg-emerald-50/70 text-emerald-700 hover:bg-emerald-100/80 border border-emerald-200/60 cursor-pointer'
                 }`}
               >
-                <span className="truncate">{labels}</span>
-                {isReached && <span className="text-[8px] text-emerald-300 font-extrabold mt-0.5">Đã đạt ✓</span>}
+                <div className="flex items-center gap-0.5 truncate">
+                  {status === 'LOCKED' && <Lock className="w-2.5 h-2.5 text-stone-400 shrink-0" />}
+                  <span className="truncate">{labels}</span>
+                </div>
+
+                {status === 'COMPLETED' && (
+                  <span className="text-[8px] text-emerald-600 font-extrabold mt-0.5 flex items-center gap-0.5">
+                    Đã đạt ✓
+                  </span>
+                )}
+                {status === 'CURRENT' && (
+                  <span className={`text-[8px] font-extrabold mt-0.5 ${isSelected ? 'text-amber-200' : 'text-emerald-700'}`}>
+                    Đang chăm 🌱
+                  </span>
+                )}
+                {status === 'LOCKED' && (
+                  <span className="text-[7.5px] text-stone-400 mt-0.5 font-medium flex items-center gap-0.5">
+                    Chưa mở 🔒
+                  </span>
+                )}
               </button>
             );
           })}

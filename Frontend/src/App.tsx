@@ -42,6 +42,7 @@ import { saveKnownUser, findKnownUserById, saveUserAvatar, getUserAvatar, findKn
 import { authService } from './services/authService';
 import { coupleService } from './services/coupleService';
 import { getMemoryImageUrl, memoryService } from './services/memoryService';
+import { gardenService } from './services/gardenService';
 
 export default function App() {
   // Main Screen Navigation State (Dedicated link for admin: /admin or ?mode=admin)
@@ -65,9 +66,35 @@ export default function App() {
   const [pairingBannerMessage, setPairingBannerMessage] = useState<string>('');
 
   // Couple & Domain State with persistent storage across tabs & reloads
-  const [couple, setCouple] = useState<CoupleData>(() =>
-    loadStoredData(STORAGE_KEYS.COUPLE, INITIAL_COUPLE)
-  );
+  const [couple, setCouple] = useState<CoupleData>(() => {
+    const stored = loadStoredData(STORAGE_KEYS.COUPLE, INITIAL_COUPLE);
+    const savedDate = localStorage.getItem('lovera_anniversary_date');
+    const savedPoints = localStorage.getItem('lovera_love_points');
+
+    let resolvedStartDate = stored.startDate || '2025-09-07';
+    if (savedDate) {
+      resolvedStartDate = savedDate;
+    } else if (stored.startDate === '2025-09-22') {
+      resolvedStartDate = '2025-09-07';
+    }
+
+    let resolvedPoints = stored.lovePoints ?? 0;
+    // Reset legacy hardcoded 1500 mock points back to natural progressive 0
+    if (savedPoints !== null) {
+      resolvedPoints = Math.max(0, parseInt(savedPoints, 10) || 0);
+    } else if (resolvedPoints >= 1000) {
+      resolvedPoints = 0;
+      localStorage.setItem('lovera_love_points', '0');
+    }
+
+    const next: CoupleData = {
+      ...stored,
+      startDate: resolvedStartDate,
+      lovePoints: resolvedPoints,
+    };
+    saveStoredData(STORAGE_KEYS.COUPLE, next);
+    return next;
+  });
   const [datePlans, setDatePlans] = useState<DatePlan[]>(() =>
     loadStoredData(STORAGE_KEYS.DATE_PLANS, INITIAL_DATE_PLANS)
   );
@@ -213,7 +240,12 @@ export default function App() {
           t.startsWith('[PROFILE_NAME]:') ||
           t.startsWith('[SYNC_NAME]:') ||
           t.startsWith('[PROFILE]:') ||
-          t.startsWith('[LIKE]:')
+          t.startsWith('[LIKE]:') ||
+          t.startsWith('[START_DATE]:') ||
+          t.startsWith('[ANNIVERSARY_DATE]:') ||
+          t.startsWith('[GARDEN_POINTS]:') ||
+          t.startsWith('[LOVE_POINTS]:') ||
+          t.startsWith('[GARDEN_METRICS]:')
         );
       };
 
@@ -295,6 +327,55 @@ export default function App() {
           saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
           return nextCouple;
         });
+      }
+
+      // 1.1 Detect if anniversary start date was published via shared backend memory tag
+      const startDateMem = items.find(m =>
+        m.text && (
+          m.text.startsWith('[START_DATE]:') ||
+          m.text.startsWith('[ANNIVERSARY_DATE]:')
+        )
+      );
+      if (startDateMem?.text) {
+        const syncedStartDate = startDateMem.text.replace(/^\[(START_DATE|ANNIVERSARY_DATE)\]:/, '').trim();
+        if (syncedStartDate) {
+          localStorage.setItem('lovera_anniversary_date', syncedStartDate);
+          if (couple.coupleId) {
+            localStorage.setItem(`lovera_anniversary_date_${couple.coupleId.toLowerCase()}`, syncedStartDate);
+          }
+          setCouple(prev => {
+            if (prev.startDate === syncedStartDate) return prev;
+            const nextCouple = { ...prev, startDate: syncedStartDate };
+            saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
+            broadcastMessage('SYNC_COUPLE', nextCouple);
+            return nextCouple;
+          });
+        }
+      }
+
+      // 1.2 Detect if garden love points were published via shared backend memory tag
+      const gardenPointsMem = items.find(m =>
+        m.text && (
+          m.text.startsWith('[GARDEN_POINTS]:') ||
+          m.text.startsWith('[LOVE_POINTS]:')
+        )
+      );
+      if (gardenPointsMem?.text) {
+        const syncedPointsStr = gardenPointsMem.text.replace(/^\[(GARDEN_POINTS|LOVE_POINTS)\]:/, '').trim();
+        const syncedPoints = parseInt(syncedPointsStr, 10);
+        if (!isNaN(syncedPoints) && syncedPoints >= 0) {
+          localStorage.setItem('lovera_love_points', String(syncedPoints));
+          if (couple.coupleId) {
+            localStorage.setItem(`lovera_love_points_${couple.coupleId.toLowerCase()}`, String(syncedPoints));
+          }
+          setCouple(prev => {
+            if (prev.lovePoints === syncedPoints) return prev;
+            const nextCouple = { ...prev, lovePoints: syncedPoints };
+            saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
+            broadcastMessage('SYNC_COUPLE', nextCouple);
+            return nextCouple;
+          });
+        }
       }
 
       // 2. Auto-publish my own profile name to backend memories so partner's device automatically knows it
@@ -469,9 +550,10 @@ export default function App() {
     if (!getStoredToken()) return;
 
     try {
-      const [profile, status] = await Promise.all([
+      const [profile, status, loveDays] = await Promise.all([
         authService.getProfile(),
         coupleService.getStatus(),
+        coupleService.getLoveDays().catch(() => null),
       ]);
 
       // Save logged-in user profile to known directory
@@ -553,10 +635,48 @@ export default function App() {
           getUserAvatar(profile.email) ||
           (isValidDisplayAvatar(prev.userA.avatar) ? prev.userA.avatar : INITIAL_COUPLE.userA.avatar);
 
+        const coupleId = status.couple?.coupleId || (isPaired ? prev.coupleId : '');
+        const savedDateByCouple = coupleId ? localStorage.getItem(`lovera_anniversary_date_${coupleId.toLowerCase()}`) : null;
+        const savedDateGlobal = localStorage.getItem('lovera_anniversary_date');
+
+        const resolvedStartDate =
+          loveDays?.startDate ||
+          status.couple?.startDate ||
+          savedDateByCouple ||
+          savedDateGlobal ||
+          (prev.startDate && prev.startDate !== '2025-09-22' ? prev.startDate : '2025-09-07');
+
+        if (resolvedStartDate) {
+          localStorage.setItem('lovera_anniversary_date', resolvedStartDate);
+          if (coupleId) {
+            localStorage.setItem(`lovera_anniversary_date_${coupleId.toLowerCase()}`, resolvedStartDate);
+          }
+          if (!loveDays?.startDate && !status.couple?.startDate && isPaired) {
+            coupleService.setLoveStartDate(resolvedStartDate).catch(() => {});
+          }
+        }
+
+        const savedPointsByCouple = coupleId ? localStorage.getItem(`lovera_love_points_${coupleId.toLowerCase()}`) : null;
+        const savedPointsGlobal = localStorage.getItem('lovera_love_points');
+        let resolvedLovePoints = prev.lovePoints ?? 0;
+        if (savedPointsByCouple !== null) {
+          resolvedLovePoints = Math.max(0, parseInt(savedPointsByCouple, 10) || 0);
+        } else if (savedPointsGlobal !== null) {
+          resolvedLovePoints = Math.max(0, parseInt(savedPointsGlobal, 10) || 0);
+        } else if (resolvedLovePoints >= 1000) {
+          resolvedLovePoints = 0;
+        }
+
+        if (coupleId) {
+          localStorage.setItem(`lovera_love_points_${coupleId.toLowerCase()}`, String(resolvedLovePoints));
+        }
+        localStorage.setItem('lovera_love_points', String(resolvedLovePoints));
+
         const next: CoupleData = {
           ...prev,
-          coupleId: status.couple?.coupleId || (isPaired ? prev.coupleId : ''),
-          startDate: status.couple?.startDate || (isPaired ? prev.startDate : new Date().toISOString().split('T')[0]),
+          coupleId,
+          startDate: resolvedStartDate,
+          lovePoints: resolvedLovePoints,
           isPaired,
           userA: {
             ...prev.userA,
@@ -571,6 +691,26 @@ export default function App() {
         saveStoredData(STORAGE_KEYS.COUPLE, next);
         return next;
       });
+
+      // Synchronize garden points from backend API if paired
+      if (isPaired) {
+        gardenService.getGarden().then(gardenRes => {
+          const remotePoints = (gardenRes as any)?.totalPoints ?? gardenRes?.points;
+          if (typeof remotePoints === 'number' && remotePoints >= 0) {
+            localStorage.setItem('lovera_love_points', String(remotePoints));
+            if (status.couple?.coupleId) {
+              localStorage.setItem(`lovera_love_points_${status.couple.coupleId.toLowerCase()}`, String(remotePoints));
+            }
+            setCouple(prev => {
+              if (prev.lovePoints === remotePoints) return prev;
+              const next = { ...prev, lovePoints: remotePoints };
+              saveStoredData(STORAGE_KEYS.COUPLE, next);
+              broadcastMessage('SYNC_COUPLE', next);
+              return next;
+            });
+          }
+        }).catch(() => {});
+      }
 
       // Load User A's real avatar blob from backend if stored on profile
       if (profile.avatarUrl && profile.avatarUrl.startsWith('/api/')) {
@@ -698,11 +838,25 @@ export default function App() {
                 (msg.payload.userA?.id && prev.userB.id && msg.payload.userA.id.toLowerCase() === prev.userB.id.toLowerCase()) ||
                 (msg.payload.userA?.name && prev.userB.name && msg.payload.userA.name.toLowerCase() === prev.userB.name.toLowerCase());
 
+              if (msg.payload.startDate) {
+                localStorage.setItem('lovera_anniversary_date', msg.payload.startDate);
+                if (prev.coupleId) {
+                  localStorage.setItem(`lovera_anniversary_date_${prev.coupleId.toLowerCase()}`, msg.payload.startDate);
+                }
+              }
+
+              if (typeof msg.payload.lovePoints === 'number') {
+                localStorage.setItem('lovera_love_points', String(msg.payload.lovePoints));
+                if (prev.coupleId) {
+                  localStorage.setItem(`lovera_love_points_${prev.coupleId.toLowerCase()}`, String(msg.payload.lovePoints));
+                }
+              }
+
               if (isPartner) {
                 const next = {
                   ...prev,
                   startDate: msg.payload.startDate || prev.startDate,
-                  lovePoints: msg.payload.lovePoints ?? prev.lovePoints,
+                  lovePoints: typeof msg.payload.lovePoints === 'number' ? msg.payload.lovePoints : prev.lovePoints,
                   coupleId: msg.payload.coupleId || prev.coupleId,
                   userB: {
                     ...prev.userB,
@@ -718,6 +872,17 @@ export default function App() {
 
               if (msg.payload.userA?.id && prev.userA.id && msg.payload.userA.id.toLowerCase() === prev.userA.id.toLowerCase()) {
                 return msg.payload;
+              }
+
+              // Cross-tab fallback for paired couple: ensure anniversary startDate and lovePoints are synchronized immediately
+              if ((msg.payload.startDate && msg.payload.startDate !== prev.startDate) || (typeof msg.payload.lovePoints === 'number' && msg.payload.lovePoints !== prev.lovePoints)) {
+                const next = {
+                  ...prev,
+                  startDate: msg.payload.startDate || prev.startDate,
+                  lovePoints: typeof msg.payload.lovePoints === 'number' ? msg.payload.lovePoints : prev.lovePoints,
+                };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
               }
 
               return prev;
@@ -820,12 +985,23 @@ export default function App() {
   // POINTS & GAMIFICATION HANDLERS
   // -----------------------------------------------------------------
   const addPoints = (amount: number, actionName: string, byUser = couple.userA.name, category?: PointHistoryItem['category']) => {
+    let nextLovePoints = 0;
     setCouple(prev => {
-      const next = { ...prev, lovePoints: prev.lovePoints + amount };
+      const nextPts = (prev.lovePoints || 0) + amount;
+      nextLovePoints = nextPts;
+      const next = { ...prev, lovePoints: nextPts };
       saveStoredData(STORAGE_KEYS.COUPLE, next);
+      localStorage.setItem('lovera_love_points', String(nextPts));
+      if (prev.coupleId) {
+        localStorage.setItem(`lovera_love_points_${prev.coupleId.toLowerCase()}`, String(nextPts));
+      }
       broadcastMessage('SYNC_COUPLE', next);
       return next;
     });
+
+    if (couple.isPaired && nextLovePoints > 0) {
+      memoryService.createMemory(`[GARDEN_POINTS]:${nextLovePoints}`).catch(() => {});
+    }
 
     const now = new Date();
     const hours = String(now.getHours()).padStart(2, '0');
@@ -1240,11 +1416,31 @@ export default function App() {
   };
 
   const handleSaveStartDate = (newStartDate: string) => {
-    setCouple(prev => ({
-      ...prev,
-      startDate: newStartDate
-    }));
+    setCouple(prev => {
+      const next: CoupleData = {
+        ...prev,
+        startDate: newStartDate
+      };
+      saveStoredData(STORAGE_KEYS.COUPLE, next);
+      localStorage.setItem('lovera_anniversary_date', newStartDate);
+      if (prev.coupleId) {
+        localStorage.setItem(`lovera_anniversary_date_${prev.coupleId.toLowerCase()}`, newStartDate);
+      }
+      broadcastMessage('SYNC_COUPLE', next);
+      return next;
+    });
+
     setIsLoveDayModalOpen(false);
+
+    // Call real backend API if authenticated
+    if (getStoredToken()) {
+      coupleService.setLoveStartDate(newStartDate).catch(err => {
+        console.warn('[App] Real setLoveStartDate error:', err);
+      });
+
+      // Also auto-publish internal sync memory so partner device receives it immediately
+      memoryService.createMemory(`[START_DATE]:${newStartDate}`).catch(() => {});
+    }
   };
 
   const handleUpdateNicknames = (nameA: string, nameB: string) => {
