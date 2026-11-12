@@ -39,7 +39,7 @@ import {
 import { AdminUserAccount, AdminSystemMetric, AdminActivityLog } from './types';
 import { Heart, Smartphone, Monitor, Shield } from 'lucide-react';
 import { STORAGE_KEYS, loadStoredData, saveStoredData, broadcastMessage, subscribeToSync, cleanupOversizedStorage, dataUrlToFile } from './utils/syncManager';
-import { getStoredToken, getStoredUserProfile, clearStoredToken, getSessionKey } from './services/apiClient';
+import { getStoredToken, getStoredUserProfile, clearStoredToken, getSessionKey, isRouteRateLimited } from './services/apiClient';
 import { saveKnownUser, findKnownUserById, saveUserAvatar, getUserAvatar, findKnownUserByName, isValidDisplayAvatar, blobToDataUrl } from './utils/userDirectory';
 import { authService, ProfileResponse } from './services/authService';
 import { coupleService } from './services/coupleService';
@@ -514,22 +514,6 @@ export default function App() {
         }
       }
 
-      // 2. Auto-publish my own profile name to backend memories so partner's device automatically knows it
-      const myDisplayName = storedProfile?.displayName || couple.userA.name;
-      if (myDisplayName && myDisplayName !== 'Alex' && couple.isPaired) {
-        const hasMyNameBroadcast = items.some(m =>
-          isMyMemory(m) && m.text && (
-            m.text === `[PROFILE_NAME]:${myDisplayName}` ||
-            m.text === `[AVATAR:${myDisplayName}]`
-          )
-        );
-        if (!hasMyNameBroadcast) {
-          memoryService.createMemory(`[PROFILE_NAME]:${myDisplayName}`).catch(e => {
-            console.warn('[App] Auto-publish name to memory failed:', e);
-          });
-        }
-      }
-
       // Find latest genuine avatar photo uploaded by partner on the backend timeline
       const partnerAvatarMem = items.find(m =>
         !isMyMemory(m) && m.hasImage && m.text && (
@@ -840,9 +824,6 @@ export default function App() {
           if (coupleId) {
             localStorage.setItem(`lovera_anniversary_date_${coupleId.toLowerCase()}`, resolvedStartDate);
           }
-          if (isPaired) {
-            coupleService.setLoveStartDate(resolvedStartDate).catch(() => {});
-          }
         }
 
         const savedPointsByCouple = coupleId ? localStorage.getItem(`lovera_love_points_${coupleId.toLowerCase()}`) : null;
@@ -906,25 +887,20 @@ export default function App() {
 
       // Load User A's real avatar blob from backend if stored on profile
       if (profile.avatarUrl && profile.avatarUrl.startsWith('/api/')) {
-        setCouple(prev => {
-          if (!isCurrentSession(session)) return prev;
-          if (!prev.userA.avatar || !prev.userA.avatar.startsWith('data:')) {
-            authService.getMyAvatarBlob().then(async blob => {
-              if (blob) {
-                const dataUrl = await blobToDataUrl(blob);
-                if (!isCurrentSession(session)) return;
-                setCouple(curr => {
-                    if (!isCurrentSession(session)) return curr;
-                  const next = { ...curr, userA: { ...curr.userA, avatar: dataUrl } };
-                  saveStoredData(STORAGE_KEYS.COUPLE, next);
-                  return next;
-                });
-                if (profile.id) saveUserAvatar(profile.id, dataUrl);
-              }
-            }).catch(() => {});
+        authService.getMyAvatarBlob().then(async blob => {
+          if (blob && isCurrentSession(session)) {
+            const dataUrl = await blobToDataUrl(blob);
+            if (!isCurrentSession(session)) return;
+            setCouple(curr => {
+              if (!isCurrentSession(session)) return curr;
+              if (curr.userA.avatar === dataUrl) return curr;
+              const next = { ...curr, userA: { ...curr.userA, avatar: dataUrl } };
+              saveStoredData(STORAGE_KEYS.COUPLE, next);
+              return next;
+            });
+            if (profile.id) saveUserAvatar(profile.id, dataUrl);
           }
-          return prev;
-        });
+        }).catch(() => {});
       }
 
       if (allowScreenRedirect) {
@@ -1008,13 +984,17 @@ export default function App() {
       try {
         let paired = latestSync.current.isPaired;
         if (!restored || resume || Date.now() - lastCouple >= (paired ? 60000 : 30000)) {
-          const result = await latestSync.current.syncAuthenticatedCouple(true, !restored || resume);
-          if (!available()) return;
-          if (typeof result === 'boolean') paired = result;
-          lastCouple = Date.now();
-          restored = true;
+          if (!isRouteRateLimited('/couples')) {
+            const result = await latestSync.current.syncAuthenticatedCouple(true, !restored || resume);
+            if (!available()) return;
+            if (typeof result === 'boolean') paired = result;
+            lastCouple = Date.now();
+            restored = true;
+          }
         }
-        if (paired && available()) await latestSync.current.refreshBackendMemories(true, resume);
+        if (paired && available() && !isRouteRateLimited('/memories')) {
+          await latestSync.current.refreshBackendMemories(true, resume);
+        }
       } finally {
         running = false;
         if (resumePending && available()) {
@@ -1362,10 +1342,6 @@ export default function App() {
       return next;
     });
 
-    if (couple.isPaired && nextLovePoints > 0) {
-      memoryService.createMemory(`[GARDEN_POINTS]:${nextLovePoints}`).catch(() => {});
-    }
-
     const now = new Date();
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
@@ -1609,20 +1585,23 @@ export default function App() {
   // -----------------------------------------------------------------
   // SHARED SPACE / MEMORIES HANDLERS (F06)
   // -----------------------------------------------------------------
+  const isAddingMemoryRef = React.useRef(false);
   const handleAddMemory = async (
     newMemory: Omit<MemoryItem, 'id' | 'createdAt' | 'likes' | 'isLiked'>,
     imageFile?: File,
   ) => {
-    if (!isDemoMode) {
-      if (!imageFile) {
-        throw new Error('Vui lòng chọn một ảnh hợp lệ để tải lên.');
+    if (isAddingMemoryRef.current) return;
+    isAddingMemoryRef.current = true;
+    try {
+      if (!isDemoMode) {
+        if (!imageFile) {
+          throw new Error('Vui lòng chọn một ảnh hợp lệ để tải lên.');
+        }
+        const saved = await memoryService.createMemory(newMemory.caption, imageFile);
+        timelineRevision.current++;
+        setBackendMemories(prev => [mapBackendMemory(saved), ...prev.filter(memory => memory.id !== saved.id)]);
+        return;
       }
-      const saved = await memoryService.createMemory(newMemory.caption, imageFile);
-      timelineRevision.current++;
-      setBackendMemories(prev => [mapBackendMemory(saved), ...prev.filter(memory => memory.id !== saved.id)]);
-      void refreshBackendMemories();
-      return;
-    }
 
     const created: MemoryItem = {
       ...newMemory,
@@ -1680,6 +1659,9 @@ export default function App() {
       },
       ...prev
     ]);
+    } finally {
+      isAddingMemoryRef.current = false;
+    }
   };
 
   const handleEditMemory = (id: string, updated: Partial<MemoryItem>) => {
@@ -1750,30 +1732,6 @@ export default function App() {
 
     broadcastMessage('SYNC_MEMORY_LIKES', { id, likes: nextLikes, isLiked: nextLiked });
     playSound('ping');
-
-    // 4. Cross-device sync via hidden memory on backend: [LIKE]:<targetId>
-    if (!isDemoMode && couple.isPaired && getStoredToken()) {
-      try {
-        if (nextLiked) {
-          await memoryService.createMemory(`[LIKE]:${id}`);
-        } else {
-          const items = await memoryService.getTimeline();
-          const storedProfile = getStoredUserProfile<{ id: string }>();
-          const myId = (storedProfile?.id || couple.userA.id || '').toLowerCase();
-          const myLikeMems = items.filter(m => {
-            const creator = (m.creatorUserId || m.userId || '').toLowerCase();
-            return creator === myId && m.text === `[LIKE]:${id}`;
-          });
-          if (myLikeMems.length > 0) {
-            await Promise.all(myLikeMems.map(lm => memoryService.deleteMemory(lm.id)));
-          }
-        }
-        timelineRevision.current++;
-        void refreshBackendMemories(true);
-      } catch (err) {
-        console.warn('[App] Sync like to backend failed:', err);
-      }
-    }
   };
 
   const handleSaveMemory = () => {
@@ -1883,35 +1841,34 @@ export default function App() {
     setIsStatusModalOpen(false);
   };
 
-  const handleSaveStartDate = (newStartDate: string) => {
-    setCouple(prev => {
-      const next: CoupleData = {
-        ...prev,
-        startDate: newStartDate
-      };
-      saveStoredData(STORAGE_KEYS.COUPLE, next);
-      localStorage.setItem('lovera_anniversary_date', newStartDate);
-      if (prev.coupleId) {
-        localStorage.setItem(`lovera_anniversary_date_${prev.coupleId.toLowerCase()}`, newStartDate);
+  const isSavingLoveDaysRef = React.useRef(false);
+  const handleSaveStartDate = async (newStartDate: string) => {
+    if (isSavingLoveDaysRef.current) return;
+    isSavingLoveDaysRef.current = true;
+    try {
+      if (getStoredToken() && couple.isPaired) {
+        await coupleService.setLoveStartDate(newStartDate);
       }
-      broadcastMessage('SYNC_COUPLE', next);
-      return next;
-    });
-
-    setIsLoveDayModalOpen(false);
-
-    // Call real backend API if authenticated
-    if (getStoredToken()) {
-      coupleService.setLoveStartDate(newStartDate).catch(err => {
-        console.warn('[App] Real setLoveStartDate error:', err);
+      setCouple(prev => {
+        const next: CoupleData = {
+          ...prev,
+          startDate: newStartDate
+        };
+        saveStoredData(STORAGE_KEYS.COUPLE, next);
+        localStorage.setItem('lovera_anniversary_date', newStartDate);
+        if (prev.coupleId) {
+          localStorage.setItem(`lovera_anniversary_date_${prev.coupleId.toLowerCase()}`, newStartDate);
+        }
+        broadcastMessage('SYNC_COUPLE', next);
+        return next;
       });
-
-      // Also auto-publish internal sync memory so partner device receives it immediately
-      memoryService.createMemory(`[START_DATE]:${newStartDate}`).catch(() => {});
+      setIsLoveDayModalOpen(false);
+    } finally {
+      isSavingLoveDaysRef.current = false;
     }
   };
 
-  const handleUpdateNicknames = (nameA: string, nameB: string) => {
+  const handleUpdateNicknames = async (nameA: string, nameB: string) => {
     const trimmedA = nameA.trim() || couple.userA.name;
     const trimmedB = nameB.trim() || couple.userB.name;
 
@@ -1952,22 +1909,11 @@ export default function App() {
     });
 
     if (getStoredToken()) {
-      authService.updateProfile({ displayName: trimmedA }).catch(err => {
+      try {
+        await authService.updateProfile({ displayName: trimmedA });
+      } catch (err) {
         console.warn('[App] Real updateProfile error:', err);
-      });
-    }
-
-    // Auto-publish nickname memory to backend so partner on ANOTHER device receives it
-    if (getStoredToken() && couple.isPaired) {
-      const payload = JSON.stringify({
-        senderId: couple.userA.id,
-        senderName: trimmedA,
-        partnerName: trimmedB,
-        timestamp: Date.now()
-      });
-      memoryService.createMemory(`[NICKNAME_PAIR]:${payload}`).catch(() => {});
-      memoryService.createMemory(`[PROFILE_NAME]:${trimmedA}`).catch(() => {});
-      memoryService.createMemory(`[PARTNER_NAME]:${trimmedB}`).catch(() => {});
+      }
     }
 
     setAdminUsers(prev => prev.map(u => {
@@ -2038,25 +1984,12 @@ export default function App() {
         }
 
         if (uploadFile) {
-          // 1. Upload to profile avatar on backend
+          // Upload to profile avatar on backend
           try {
             await authService.uploadAvatar(uploadFile);
           } catch (e) {
             console.warn('[App] uploadAvatar to backend failed:', e);
           }
-          if (!isCurrentSession(session)) return;
-
-          // 2. Upload shared memory with [AVATAR] tag and name so partner's device automatically downloads and displays it
-          try {
-            await memoryService.createMemory(`[AVATAR:${myName || ''}]`, uploadFile);
-          } catch (e) {
-            console.warn('[App] createMemory for avatar failed:', e);
-          }
-          if (!isCurrentSession(session)) return;
-
-          // 3. Immediately refresh memories and link
-          timelineRevision.current++;
-          void refreshBackendMemories();
         }
       } catch (err) {
         console.warn('[App] Upload avatar to backend failed:', err);

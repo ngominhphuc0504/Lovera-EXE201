@@ -83,22 +83,43 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     }
   };
 
-  const handleSaveNicknames = () => {
-    onUpdateNicknames(nickA, nickB);
-    setSavedToast('Đã lưu biệt danh mới của hai bạn!');
-    playSound('success');
-    setTimeout(() => setSavedToast(''), 2500);
+  const [isSubmittingNicknames, setIsSubmittingNicknames] = useState(false);
+  const [isSubmittingPersonalName, setIsSubmittingPersonalName] = useState(false);
+
+  const handleSaveNicknames = async () => {
+    if (isSubmittingNicknames) return;
+    setIsSubmittingNicknames(true);
+    try {
+      await onUpdateNicknames(nickA, nickB);
+      setSavedToast('Đã lưu biệt danh mới của hai bạn!');
+      playSound('success');
+    } catch (err: any) {
+      setSavedToast(err?.message || 'Không thể lưu biệt danh.');
+      playSound('error');
+    } finally {
+      setIsSubmittingNicknames(false);
+      setTimeout(() => setSavedToast(''), 2500);
+    }
   };
 
-  const handleSavePersonalName = () => {
-    if (onUpdateUserName) {
-      onUpdateUserName(nickA);
-    } else {
-      onUpdateNicknames(nickA, userB.name);
+  const handleSavePersonalName = async () => {
+    if (isSubmittingPersonalName) return;
+    setIsSubmittingPersonalName(true);
+    try {
+      if (onUpdateUserName) {
+        await onUpdateUserName(nickA);
+      } else {
+        await onUpdateNicknames(nickA, userB.name);
+      }
+      setSavedToast('Đã lưu tên hiển thị của bạn!');
+      playSound('success');
+    } catch (err: any) {
+      setSavedToast(err?.message || 'Không thể lưu tên.');
+      playSound('error');
+    } finally {
+      setIsSubmittingPersonalName(false);
+      setTimeout(() => setSavedToast(''), 2500);
     }
-    setSavedToast('Đã lưu tên hiển thị của bạn!');
-    playSound('success');
-    setTimeout(() => setSavedToast(''), 2500);
   };
 
   return (
@@ -324,11 +345,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             <button
+              type="button"
+              disabled={isSubmittingNicknames}
               onClick={handleSaveNicknames}
-              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Edit2 className="w-3.5 h-3.5" />
-              <span>Lưu Biệt Danh Mới</span>
+              <span>{isSubmittingNicknames ? 'Đang lưu...' : 'Lưu Biệt Danh Mới'}</span>
             </button>
           </div>
 
@@ -387,11 +410,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             <button
+              type="button"
+              disabled={isSubmittingPersonalName}
               onClick={handleSavePersonalName}
-              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Edit2 className="w-3.5 h-3.5" />
-              <span>Lưu Tên Hiển Thị</span>
+              <span>{isSubmittingPersonalName ? 'Đang lưu...' : 'Lưu Tên Hiển Thị'}</span>
             </button>
           </div>
 
