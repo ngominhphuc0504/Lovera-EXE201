@@ -23,6 +23,7 @@ import {
 import { playSound } from '../../utils/audio';
 import { Partner } from '../../types';
 import { coupleService } from '../../services/coupleService';
+import { getSessionKey, getStoredToken } from '../../services/apiClient';
 import { isValidDisplayAvatar, findKnownUserById } from '../../utils/userDirectory';
 
 export type PairingStage = 
@@ -209,21 +210,46 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
   // Polling check if partner has joined while waiting
   useEffect(() => {
     if (stage !== 'create' && stage !== 'waiting_partner') return;
-    const interval = setInterval(async () => {
+    const session = getSessionKey();
+    let stopped = false;
+    let running = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const available = () => !stopped && !document.hidden && navigator.onLine && Boolean(getStoredToken()) && session === getSessionKey();
+    const poll = async () => {
+      if (!available() || running) return;
+      running = true;
       try {
         const res = await coupleService.getStatus();
+        if (!available()) return;
         if (res.isPaired && res.couple?.isActive) {
           const p = extractPartner(res.couple);
           if (p) setPartnerCandidate(p);
           playSound('success');
           setStage('success');
-          clearInterval(interval);
+          stopped = true;
         }
       } catch {
         // ignore polling error
+      } finally {
+        running = false;
+        if (available()) timer = setTimeout(() => void poll(), 3000);
       }
-    }, 3000);
-    return () => clearInterval(interval);
+    };
+    const onAvailability = () => {
+      clearTimeout(timer);
+      if (available()) void poll();
+    };
+    if (available()) timer = setTimeout(() => void poll(), 3000);
+    document.addEventListener('visibilitychange', onAvailability);
+    window.addEventListener('online', onAvailability);
+    window.addEventListener('offline', onAvailability);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onAvailability);
+      window.removeEventListener('online', onAvailability);
+      window.removeEventListener('offline', onAvailability);
+    };
   }, [stage]);
 
   const handleCopyCode = () => {

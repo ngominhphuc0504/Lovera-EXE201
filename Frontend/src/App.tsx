@@ -39,9 +39,9 @@ import {
 import { AdminUserAccount, AdminSystemMetric, AdminActivityLog } from './types';
 import { Heart, Smartphone, Monitor, Shield } from 'lucide-react';
 import { STORAGE_KEYS, loadStoredData, saveStoredData, broadcastMessage, subscribeToSync, cleanupOversizedStorage, dataUrlToFile } from './utils/syncManager';
-import { getStoredToken, getStoredUserProfile, clearStoredToken } from './services/apiClient';
+import { getStoredToken, getStoredUserProfile, clearStoredToken, getSessionKey } from './services/apiClient';
 import { saveKnownUser, findKnownUserById, saveUserAvatar, getUserAvatar, findKnownUserByName, isValidDisplayAvatar, blobToDataUrl } from './utils/userDirectory';
-import { authService } from './services/authService';
+import { authService, ProfileResponse } from './services/authService';
 import { coupleService } from './services/coupleService';
 import { getMemoryImageUrl, memoryService } from './services/memoryService';
 
@@ -115,6 +115,16 @@ export default function App() {
   const lastSyncedPartnerAvatarMemId = React.useRef<string>('');
   const lastSyncedMyAvatarMemId = React.useRef<string>('');
 
+  const mountedRef = React.useRef(false);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const isCurrentSession = (session: string) => mountedRef.current && session === getSessionKey();
+  const timelineFlight = React.useRef<{ key: string; promise: Promise<boolean>; revalidate: boolean; revision: number } | null>(null);
+  const timelineRevision = React.useRef(0);
+  const timelineLoaded = React.useRef({ key: '', at: 0 });
+  const coupleFlight = React.useRef<{ key: string; promise: Promise<boolean | undefined> } | null>(null);
   const MEMORY_LIKES_KEY = 'lovera_memory_likes';
 
   const getMemoryLikesMap = (): Record<string, { likes: number; isLiked: boolean }> => {
@@ -175,13 +185,42 @@ export default function App() {
     };
   };
 
-  const refreshBackendMemories = async (isBackground = false): Promise<boolean> => {
+  const refreshBackendMemories = (isBackground = false, force = true): Promise<boolean> => {
+    const key = `${getSessionKey()}:${couple.coupleId || ''}`;
+    if (!getStoredToken() || isDemoMode || !mountedRef.current) return Promise.resolve(false);
+    if (timelineFlight.current?.key === key) {
+      timelineFlight.current.revalidate ||= force && timelineFlight.current.revision !== timelineRevision.current;
+      return timelineFlight.current.promise;
+    }
+    if (!force && timelineLoaded.current.key === key && Date.now() - timelineLoaded.current.at < 30000) return Promise.resolve(true);
+    const promise = loadBackendMemories(isBackground).then(ok => {
+      if (ok && key === `${getSessionKey()}:${latestSync.current.coupleId || ''}`) timelineLoaded.current = { key, at: Date.now() };
+      return ok;
+    }).finally(() => {
+      if (timelineFlight.current?.promise === promise) {
+        const revalidate = timelineFlight.current.revalidate;
+        timelineFlight.current = null;
+        if (revalidate && mountedRef.current && key === `${getSessionKey()}:${latestSync.current.coupleId || ''}`) {
+          return latestSync.current.refreshBackendMemories(true);
+        }
+      }
+    });
+    timelineFlight.current = { key, promise, revalidate: false, revision: timelineRevision.current };
+    return promise;
+  };
+
+  const loadBackendMemories = async (isBackground = false): Promise<boolean> => {
+    const session = getSessionKey();
+    const coupleId = couple.coupleId;
+    const revision = timelineRevision.current;
+    const active = () => isCurrentSession(session) && latestSync.current.coupleId === coupleId && timelineRevision.current === revision;
     if (!isBackground && backendMemories.length === 0) {
       setIsLoadingBackendMemories(true);
     }
     setBackendMemoriesError('');
     try {
       const items = await memoryService.getTimeline();
+      if (!active()) return false;
       
       const storedProfile = getStoredUserProfile<{ id: string; displayName?: string; email?: string }>();
       const myId = (storedProfile?.id || couple.userA.id || '').toLowerCase();
@@ -240,6 +279,7 @@ export default function App() {
       const dateMemories = items.filter(m => !isInternalSyncMemory(m.text));
       
       setBackendMemories(prev => {
+        if (!active()) return prev;
         const nextList = dateMemories.map(item => mapBackendMemory(item, remoteLikesMap));
         if (prev.length === nextList.length) {
           const isIdentical = prev.every((m, idx) => {
@@ -303,6 +343,8 @@ export default function App() {
         localStorage.setItem('lovera_partner_nickname', detectedPartnerName);
 
         setCouple(prev => {
+
+          if (!active()) return prev;
           if (prev.userB.name === detectedPartnerName) return prev;
           const nextCouple = {
             ...prev,
@@ -317,21 +359,7 @@ export default function App() {
         });
       }
 
-      // 2. Auto-publish my own profile name to backend memories so partner's device automatically knows it
-      const myDisplayName = storedProfile?.displayName || couple.userA.name;
-      if (myDisplayName && myDisplayName !== 'Alex' && couple.isPaired) {
-        const hasMyNameBroadcast = items.some(m =>
-          isMyMemory(m) && m.text && (
-            m.text === `[PROFILE_NAME]:${myDisplayName}` ||
-            m.text === `[AVATAR:${myDisplayName}]`
-          )
-        );
-        if (!hasMyNameBroadcast) {
-          memoryService.createMemory(`[PROFILE_NAME]:${myDisplayName}`).catch(e => {
-            console.warn('[App] Auto-publish name to memory failed:', e);
-          });
-        }
-      }
+      // Read-only: explicit profile edits still publish name/avatar sync records.
 
       // Find latest avatar photo uploaded by partner on the backend timeline
       let partnerAvatarMem = items.find(m =>
@@ -358,6 +386,7 @@ export default function App() {
           try {
             const blob = await memoryService.getImage(partnerAvatarMem.id);
             const dataUrl = await blobToDataUrl(blob);
+            if (!active()) return false;
             lastSyncedPartnerAvatarMemId.current = partnerAvatarMem.id;
             const realPartnerId = (partnerAvatarMem.creatorUserId || partnerAvatarMem.userId || partnerId || '').toLowerCase();
 
@@ -366,6 +395,8 @@ export default function App() {
             if (couple.userB.email) saveUserAvatar(couple.userB.email, dataUrl);
 
             setCouple(prev => {
+
+              if (!active()) return prev;
               if (prev.userB.avatar === dataUrl && prev.userB.name === (detectedPartnerName || prev.userB.name)) {
                 return prev;
               }
@@ -394,10 +425,12 @@ export default function App() {
           try {
             const blob = await memoryService.getImage(myAvatarMem.id);
             const dataUrl = await blobToDataUrl(blob);
+            if (!active()) return false;
             lastSyncedMyAvatarMemId.current = myAvatarMem.id;
             if (myId) saveUserAvatar(myId, dataUrl);
             if (couple.userA.name) saveUserAvatar(couple.userA.name, dataUrl);
             setCouple(prev => {
+              if (!active()) return prev;
               if (prev.userA.avatar === dataUrl) return prev;
               const next = { ...prev, userA: { ...prev.userA, avatar: dataUrl } };
               saveStoredData(STORAGE_KEYS.COUPLE, next);
@@ -409,9 +442,11 @@ export default function App() {
             const myBlob = await authService.getMyAvatarBlob();
             if (myBlob) {
               const dataUrl = await blobToDataUrl(myBlob);
+              if (!active()) return false;
               if (myId) saveUserAvatar(myId, dataUrl);
               if (couple.userA.name) saveUserAvatar(couple.userA.name, dataUrl);
               setCouple(prev => {
+                if (!active()) return prev;
                 if (prev.userA.avatar === dataUrl) return prev;
                 const next = { ...prev, userA: { ...prev.userA, avatar: dataUrl } };
                 saveStoredData(STORAGE_KEYS.COUPLE, next);
@@ -424,17 +459,19 @@ export default function App() {
 
       return true;
     } catch (error) {
+      if (!active()) return false;
       setBackendMemoriesError(error instanceof Error ? error.message : 'Không thể tải kỷ niệm từ máy chủ.');
       return false;
     } finally {
-      setIsLoadingBackendMemories(false);
+      if (isCurrentSession(session)) setIsLoadingBackendMemories(false);
     }
   };
 
   React.useEffect(() => {
     if ((currentScreen !== 'home' && currentScreen !== 'shared') || isDemoMode) return;
-    void refreshBackendMemories(true);
-  }, [currentScreen, isDemoMode, couple.isPaired]);
+    if (!couple.isPaired || document.hidden || !navigator.onLine) return;
+    void refreshBackendMemories(true, false);
+  }, [currentScreen, isDemoMode, couple.isPaired, couple.coupleId]);
 
   const navigateToAdmin = () => {
     playSound('click');
@@ -485,14 +522,28 @@ export default function App() {
     return () => window.removeEventListener('popstate', checkUrl);
   }, []);
 
-  const syncAuthenticatedCouple = async (allowScreenRedirect = true) => {
-    if (!getStoredToken()) return;
+  const syncAuthenticatedCouple = (allowScreenRedirect = true, refreshProfile = true) => {
+    const key = getSessionKey();
+    if (!getStoredToken() || !mountedRef.current) return Promise.resolve(undefined);
+    if (coupleFlight.current?.key === key) return coupleFlight.current.promise;
+    const promise = loadAuthenticatedCouple(allowScreenRedirect, refreshProfile).finally(() => {
+      if (coupleFlight.current?.promise === promise) coupleFlight.current = null;
+    });
+    coupleFlight.current = { key, promise };
+    return promise;
+  };
+
+  const loadAuthenticatedCouple = async (allowScreenRedirect: boolean, refreshProfile: boolean) => {
+    const session = getSessionKey();
 
     try {
       const [profile, status] = await Promise.all([
-        authService.getProfile(),
+        refreshProfile || !getStoredUserProfile<ProfileResponse>()
+          ? authService.getProfile()
+          : Promise.resolve(getStoredUserProfile<ProfileResponse>()!),
         coupleService.getStatus(),
       ]);
+      if (!isCurrentSession(session)) return;
 
       // Save logged-in user profile to known directory
       saveKnownUser({
@@ -505,6 +556,8 @@ export default function App() {
       const isPaired = Boolean(status.isPaired);
 
       setCouple(prev => {
+
+        if (!isCurrentSession(session)) return prev;
         let partnerData = prev.userB;
         if (isPaired) {
           const otherId = status.couple?.userIds?.find((id: string) => id.toLowerCase() !== profile.id.toLowerCase());
@@ -595,11 +648,14 @@ export default function App() {
       // Load User A's real avatar blob from backend if stored on profile
       if (profile.avatarUrl && profile.avatarUrl.startsWith('/api/')) {
         setCouple(prev => {
+          if (!isCurrentSession(session)) return prev;
           if (!prev.userA.avatar || !prev.userA.avatar.startsWith('data:')) {
             authService.getMyAvatarBlob().then(async blob => {
               if (blob) {
                 const dataUrl = await blobToDataUrl(blob);
+                if (!isCurrentSession(session)) return;
                 setCouple(curr => {
+                    if (!isCurrentSession(session)) return curr;
                   const next = { ...curr, userA: { ...curr.userA, avatar: dataUrl } };
                   saveStoredData(STORAGE_KEYS.COUPLE, next);
                   return next;
@@ -614,13 +670,14 @@ export default function App() {
 
       if (allowScreenRedirect) {
         if (isPaired) {
-          void refreshBackendMemories();
           setCurrentScreen(curr => (curr === 'welcome' || curr === 'login' || curr === 'auth' || curr === 'pairing' ? 'home' : curr));
         } else {
           setCurrentScreen(curr => (['home', 'shared', 'chat', 'planner', 'garden'].includes(curr) ? 'pairing' : curr));
         }
       }
+      return isPaired;
     } catch (err) {
+      if (!isCurrentSession(session)) return;
       console.warn('[App] Auto fetch real profile and couple status failed:', err);
     }
   };
@@ -646,23 +703,92 @@ export default function App() {
       };
     });
 
-    void syncAuthenticatedCouple();
-    if (getStoredToken() && !isDemoMode) {
-      void refreshBackendMemories();
-    }
   }, []);
 
-  // Auto background polling sync every 6 seconds to detect unpair / pair & avatar updates in real time across tabs & devices
+  // Fresh callbacks without recreating timers whenever profile/couple state changes.
+  const latestSync = React.useRef({ syncAuthenticatedCouple, refreshBackendMemories, isPaired: couple.isPaired, coupleId: couple.coupleId });
+  latestSync.current = { syncAuthenticatedCouple, refreshBackendMemories, isPaired: couple.isPaired, coupleId: couple.coupleId };
+  const [, refreshSession] = React.useReducer((value: number) => value + 1, 0);
+  React.useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === 'lovera_access_token') refreshSession();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+  const sessionKey = getSessionKey();
+  const previousSession = React.useRef(sessionKey);
+  React.useEffect(() => {
+    if (previousSession.current === sessionKey) return;
+    previousSession.current = sessionKey;
+    lastSyncedPartnerAvatarMemId.current = '';
+    lastSyncedMyAvatarMemId.current = '';
+    timelineLoaded.current = { key: '', at: 0 };
+    setBackendMemories([]);
+    setIsLoadingBackendMemories(false);
+    setBackendMemoriesError('');
+  }, [sessionKey]);
   React.useEffect(() => {
     if (!getStoredToken() || isDemoMode) return;
-    const interval = setInterval(() => {
-      void syncAuthenticatedCouple(false);
-      if (couple.isPaired) {
-        void refreshBackendMemories(true);
+    let stopped = false;
+    let running = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastCouple = 0;
+    let restored = false;
+    let resumePending = false;
+    let lastResume = 0;
+    const available = () => !stopped && !document.hidden && navigator.onLine && getSessionKey() === sessionKey;
+    const schedule = () => {
+      clearTimeout(timer);
+      if (available()) timer = setTimeout(() => void tick(), 30000);
+    };
+    const tick = async (resume = false) => {
+      if (!available()) return;
+      if (running) { resumePending ||= resume; return; }
+      running = true;
+      try {
+        let paired = latestSync.current.isPaired;
+        if (!restored || resume || Date.now() - lastCouple >= (paired ? 60000 : 30000)) {
+          const result = await latestSync.current.syncAuthenticatedCouple(true, !restored || resume);
+          if (!available()) return;
+          if (typeof result === 'boolean') paired = result;
+          lastCouple = Date.now();
+          restored = true;
+        }
+        if (paired && available()) await latestSync.current.refreshBackendMemories(true, resume);
+      } finally {
+        running = false;
+        if (resumePending && available()) {
+          resumePending = false;
+          void tick(true);
+        } else schedule();
       }
-    }, 6000);
-    return () => clearInterval(interval);
-  }, [isDemoMode, couple.isPaired]);
+    };
+    let resumeQueued = false;
+    const onAvailability = () => {
+      clearTimeout(timer);
+      if (!available() || resumeQueued || Date.now() - lastResume < 1000) return;
+      lastResume = Date.now();
+      resumeQueued = true;
+      // Coalesce online + visibility events into one refresh.
+      queueMicrotask(() => {
+        resumeQueued = false;
+        if (available()) void tick(true);
+      });
+    };
+    document.addEventListener('visibilitychange', onAvailability);
+    window.addEventListener('online', onAvailability);
+    window.addEventListener('offline', onAvailability);
+    // StrictMode cleans up its first setup before this callback starts requests.
+    timer = setTimeout(() => void tick(), 0);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onAvailability);
+      window.removeEventListener('online', onAvailability);
+      window.removeEventListener('offline', onAvailability);
+    };
+  }, [isDemoMode, sessionKey]);
 
   // Live Cross-Tab Synchronization with BroadcastChannel & localStorage
   const stateRef = React.useRef({ memories, couple, adminUsers, adminLogs, adminMetrics, datePlans, pointHistory, gardenMetrics });
@@ -1106,6 +1232,7 @@ export default function App() {
         throw new Error('Vui lòng chọn một ảnh hợp lệ để tải lên.');
       }
       const saved = await memoryService.createMemory(newMemory.caption, imageFile);
+      timelineRevision.current++;
       setBackendMemories(prev => [mapBackendMemory(saved), ...prev.filter(memory => memory.id !== saved.id)]);
       void refreshBackendMemories();
       return;
@@ -1182,6 +1309,7 @@ export default function App() {
   const handleDeleteMemory = async (id: string) => {
     if (!isDemoMode) {
       await memoryService.deleteMemory(id);
+      timelineRevision.current++;
       setBackendMemories(prev => prev.filter(memory => memory.id !== id));
       void refreshBackendMemories();
       return;
@@ -1254,6 +1382,7 @@ export default function App() {
             await Promise.all(myLikeMems.map(lm => memoryService.deleteMemory(lm.id)));
           }
         }
+        timelineRevision.current++;
         void refreshBackendMemories(true);
       } catch (err) {
         console.warn('[App] Sync like to backend failed:', err);
@@ -1431,6 +1560,7 @@ export default function App() {
   };
 
   const handleUpdateUserAvatar = async (newAvatarUrl: string, file?: File) => {
+    const session = getSessionKey();
     const myId = couple.userA.id;
     const myName = couple.userA.name;
     const myEmail = couple.userA.email;
@@ -1482,6 +1612,7 @@ export default function App() {
           } catch (e) {
             console.warn('[App] uploadAvatar to backend failed:', e);
           }
+          if (!isCurrentSession(session)) return;
 
           // 2. Upload shared memory with [AVATAR] tag and name so partner's device automatically downloads and displays it
           try {
@@ -1489,8 +1620,10 @@ export default function App() {
           } catch (e) {
             console.warn('[App] createMemory for avatar failed:', e);
           }
+          if (!isCurrentSession(session)) return;
 
           // 3. Immediately refresh memories and link
+          timelineRevision.current++;
           void refreshBackendMemories();
         }
       } catch (err) {
@@ -1501,6 +1634,7 @@ export default function App() {
 
 
   const handleUnpair = async () => {
+    const session = getSessionKey();
     playSound('error');
 
     // 1. Call Real Backend API to release the couple on the server database
@@ -1512,6 +1646,7 @@ export default function App() {
       }
     }
 
+    if (!isCurrentSession(session)) return;
     const todayStr = new Date().toISOString().split('T')[0];
 
     // 2. Reset couple state cleanly: User A stays logged in, partner B and shared data reset
@@ -1558,6 +1693,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    const session = getSessionKey();
     playSound('click');
     try {
       if (getStoredToken()) {
@@ -1566,6 +1702,8 @@ export default function App() {
     } catch (err) {
       console.warn('[App] Real logout API error:', err);
     } finally {
+      // A late logout from another session must not clear the new account.
+      if (getStoredToken() && session !== getSessionKey()) return;
       clearStoredToken();
     }
 
@@ -1850,8 +1988,7 @@ export default function App() {
                   isPaired: isAlreadyPaired,
                 }));
                 if (isAlreadyPaired) {
-                  void syncAuthenticatedCouple();
-                  void refreshBackendMemories();
+                  // Session scheduler restores profile/couple and loads memories once.
                   setCurrentScreen('home');
                 } else {
                   setPairingInitialStage('idle');
@@ -1881,8 +2018,7 @@ export default function App() {
                   isPaired: isAlreadyPaired,
                 }));
                 if (isAlreadyPaired) {
-                  void syncAuthenticatedCouple();
-                  void refreshBackendMemories();
+                  // Session scheduler restores profile/couple and loads memories once.
                   setCurrentScreen('home');
                 } else {
                   setPairingInitialStage('idle');

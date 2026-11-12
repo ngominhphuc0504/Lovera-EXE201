@@ -7,6 +7,12 @@ export const BASE_API_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const TOKEN_KEY = 'lovera_access_token';
 const USER_KEY = 'lovera_current_user_profile';
+let sessionRevision = 0;
+
+// Includes a revision so logging out and back into the same account invalidates old work.
+export function getSessionKey(): string {
+  return `${sessionRevision}:${getStoredToken() || ''}`;
+}
 
 export interface ApiProblemDetails {
   status?: number;
@@ -39,6 +45,7 @@ export function getStoredToken(): string | null {
 }
 
 export function setStoredToken(token: string): void {
+  sessionRevision++;
   try {
     localStorage.setItem(TOKEN_KEY, token);
   } catch (err) {
@@ -47,6 +54,7 @@ export function setStoredToken(token: string): void {
 }
 
 export function clearStoredToken(): void {
+  sessionRevision++;
   try {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
@@ -77,6 +85,7 @@ export function setStoredUserProfile(profile: any): void {
  * Automatically appends Authorization Bearer Token and extracts structured errors.
  */
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const session = getSessionKey();
   const url = path.startsWith('http') ? path : `${BASE_API_URL}${path.startsWith('/') ? path : `/${path}`}`;
   
   const headers = new Headers(options.headers || {});
@@ -107,6 +116,9 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
       headers,
       signal,
     }).finally(() => clearTimeout(timeoutId));
+    if (session !== getSessionKey()) {
+      throw new ApiError('Phiên đăng nhập đã thay đổi.', 0, 'stale_session');
+    }
 
     // 204 No Content
     if (response.status === 204) {
@@ -143,7 +155,11 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
       throw new ApiError(message, response.status, code, errorData?.errors);
     }
 
-    return isJson ? await response.json() : ((await response.text()) as any);
+    const result = isJson ? await response.json() : await response.text();
+    if (session !== getSessionKey()) {
+      throw new ApiError('Phiên đăng nhập đã thay đổi.', 0, 'stale_session');
+    }
+    return result as T;
   } catch (err: any) {
     if (err instanceof ApiError) {
       throw err;
