@@ -16,6 +16,7 @@ export const STORAGE_KEYS = {
   ADMIN_METRICS: 'lovera_admin_metrics',
   DATE_PLANS: 'lovera_date_plans',
   POINT_HISTORY: 'lovera_point_history',
+  GARDEN_METRICS: 'lovera_garden_metrics',
 } as const;
 
 export type SyncMessageType = 
@@ -27,6 +28,8 @@ export type SyncMessageType =
   | 'SYNC_ADMIN_METRICS'
   | 'SYNC_DATE_PLANS'
   | 'SYNC_POINT_HISTORY'
+  | 'SYNC_GARDEN_METRICS'
+  | 'SYNC_MEMORY_NOTIFICATION'
   | 'SYNC_AVATAR'
   | 'REQUEST_SYNC'
   | 'SYNC_ALL';
@@ -167,6 +170,8 @@ export function subscribeToSync(onMessage: (msg: SyncMessage) => void): () => vo
         onMessage({ type: 'SYNC_DATE_PLANS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.POINT_HISTORY) {
         onMessage({ type: 'SYNC_POINT_HISTORY', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+      } else if (event.key === STORAGE_KEYS.GARDEN_METRICS) {
+        onMessage({ type: 'SYNC_GARDEN_METRICS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       }
     } catch (err) {
       // ignore

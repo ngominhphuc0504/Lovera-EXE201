@@ -1,4 +1,6 @@
-import { apiFetch, ApiError, BASE_API_URL, getStoredToken } from './apiClient';
+import { apiFetch, ApiError, BASE_API_URL, getStoredToken, getSessionKey } from './apiClient';
+
+const timelineRequests = new Map<string, Promise<BackendMemoryItem[]>>();
 
 export interface BackendMemoryItem {
   id: string;
@@ -22,10 +24,17 @@ export const memoryService = {
    * Lấy danh sách timeline bài viết kỷ niệm từ backend
    * GET /api/memories
    */
-  async getTimeline(): Promise<BackendMemoryItem[]> {
-    return apiFetch<BackendMemoryItem[]>('/memories', {
+  getTimeline(): Promise<BackendMemoryItem[]> {
+    const session = getSessionKey();
+    const existing = timelineRequests.get(session);
+    if (existing) return existing;
+    const request = apiFetch<BackendMemoryItem[]>('/memories', {
       method: 'GET',
+    }).finally(() => {
+      if (timelineRequests.get(session) === request) timelineRequests.delete(session);
     });
+    timelineRequests.set(session, request);
+    return request;
   },
 
   /**
@@ -44,6 +53,7 @@ export const memoryService = {
   },
 
   async getImage(memoryId: string): Promise<Blob> {
+    const session = getSessionKey();
     const token = getStoredToken();
     if (!token) {
       throw new ApiError('Phiên đăng nhập không hợp lệ hoặc đã hết hạn.', 401, 'unauthenticated');
@@ -78,6 +88,7 @@ export const memoryService = {
     }
 
     const image = await response.blob();
+    if (session !== getSessionKey()) throw new ApiError('Phiên đăng nhập đã thay đổi.', 0, 'stale_session');
     if (!image.type.startsWith('image/')) {
       throw new ApiError('Dữ liệu ảnh không hợp lệ.', response.status, 'invalid_image_response');
     }

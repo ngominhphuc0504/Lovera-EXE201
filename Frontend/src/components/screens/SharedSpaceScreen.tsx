@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Heart, 
   Image as ImageIcon, 
@@ -24,51 +24,12 @@ import {
 } from 'lucide-react';
 import { MemoryItem, MemoryTag, CoupleData, Partner } from '../../types';
 import { playSound, formatVNDate, calculateTotalDays } from '../../utils/audio';
-import { compressImageFile } from '../../utils/syncManager';
+import { MemoryImageEditor, MemoryImageEditorHandle } from '../common/MemoryImageEditor';
 import { memoryService } from '../../services/memoryService';
 import { MemoryPhoto } from '../common/MemoryPhoto';
 
 const MAX_BACKEND_IMAGE_BYTES = 5 * 1024 * 1024;
 const SUPPORTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-
-const PRESET_PHOTOS = [
-  {
-    title: 'Hẹn hò hoàng hôn',
-    url: 'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=800&auto=format&fit=crop&q=80',
-    tag: 'Hẹn hò' as MemoryTag,
-    caption: 'Ngắm hoàng hôn rực rỡ buông xuống thành phố cùng người thương.'
-  },
-  {
-    title: 'Cà phê ấm áp',
-    url: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800&auto=format&fit=crop&q=80',
-    tag: 'Đời thường' as MemoryTag,
-    caption: 'Một buổi sáng cuối tuần thảnh thơi nhâm nhi tách latte thơm nồng.'
-  },
-  {
-    title: 'Bữa tối nến lung linh',
-    url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&auto=format&fit=crop&q=80',
-    tag: 'Kỷ niệm' as MemoryTag,
-    caption: 'Bữa tiệc nhỏ kỷ niệm những ngày tháng ngọt ngào bên nhau.'
-  },
-  {
-    title: 'Chuyến dã ngoại xanh',
-    url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&auto=format&fit=crop&q=80',
-    tag: 'Du lịch' as MemoryTag,
-    caption: 'Biển xanh, cát trắng và nụ cười rạng rỡ của người ấy.'
-  },
-  {
-    title: 'Nắm tay qua phố',
-    url: 'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=800&auto=format&fit=crop&q=80',
-    tag: 'Khoảnh khắc' as MemoryTag,
-    caption: 'Bàn tay nắm chặt tay nhau, cùng đi qua những con phố thân quen.'
-  },
-  {
-    title: 'Vườn hoa khoe sắc',
-    url: 'https://images.unsplash.com/photo-1518895949257-7621c3c786d7?w=800&auto=format&fit=crop&q=80',
-    tag: 'Khoảnh khắc' as MemoryTag,
-    caption: 'Kỷ niệm ngày đóa hoa tình yêu đầu tiên trong khu vườn nở rộ.'
-  }
-];
 
 const TAG_COLORS: Record<MemoryTag, string> = {
   'Hẹn hò': 'bg-rose-50 text-rose-700 border-rose-200',
@@ -122,12 +83,15 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
 
   // Add form state
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [newImageUrl, setNewImageUrl] = useState<string>(PRESET_PHOTOS[0].url);
+  const [newImageUrl, setNewImageUrl] = useState<string>('');
   const [newCaption, setNewCaption] = useState<string>('');
   const [newDate, setNewDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [newLocation, setNewLocation] = useState<string>('');
   const [newTag, setNewTag] = useState<MemoryTag>('Hẹn hò');
-  const [customFilePreview, setCustomFilePreview] = useState<string>('');
+  const editorRef = useRef<MemoryImageEditorHandle>(null);
+  const [imageReady, setImageReady] = useState(false);
+  const submitLock = useRef(false);
+  useEffect(() => () => { if (newImageUrl) URL.revokeObjectURL(newImageUrl); }, [newImageUrl]);
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [submissionError, setSubmissionError] = useState('');
   const [isSubmittingMemory, setIsSubmittingMemory] = useState(false);
@@ -144,80 +108,31 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
     setTimeout(() => setToastMessage(''), 2600);
   };
 
-  const [isCompressing, setIsCompressing] = useState(false);
-
-  const fileFromUrl = async (url: string): Promise<File> => {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error('Không thể tải ảnh mẫu. Vui lòng chọn ảnh từ thiết bị.');
-    const blob = await response.blob();
-    if (!SUPPORTED_IMAGE_TYPES.includes(blob.type)) {
-      throw new Error('Ảnh phải có định dạng PNG, JPEG hoặc WebP.');
-    }
-    return new File([blob], `lovera-memory-${Date.now()}`, { type: blob.type });
-  };
-
-  // Handle local file upload with auto compression (prevents storage quota issues)
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-
+    e.target.value = '';
+    if (!file || isSubmittingMemory) return;
     setSubmissionError('');
     if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
-      setSubmissionError('Ảnh phải có định dạng PNG, JPEG hoặc WebP.');
-      e.target.value = '';
-      return;
+      setSubmissionError('Ảnh phải có định dạng PNG, JPEG hoặc WebP.'); return;
     }
     if (file.size > 20 * 1024 * 1024) {
-      setSubmissionError('Kích thước ảnh tối đa là 20MB.');
-      e.target.value = '';
-      return;
+      setSubmissionError('Ảnh gốc tối đa 20MB. Ảnh sau khi crop phải dưới 5MB.'); return;
     }
-
-    try {
-      setIsCompressing(true);
-      setSelectedImageFile(file);
-      const compressedDataUrl = await compressImageFile(file, 1080, 0.82);
-      const compressedBlob = await fetch(compressedDataUrl).then(response => response.blob());
-      const compressedFile = new File([compressedBlob], `lovera-memory-${Date.now()}.jpg`, {
-        type: compressedBlob.type || 'image/jpeg',
-      });
-      setSelectedImageFile(compressedFile);
-      setCustomFilePreview(compressedDataUrl);
-      setNewImageUrl(compressedDataUrl);
-      if (compressedFile.size > MAX_BACKEND_IMAGE_BYTES) {
-        setSubmissionError('Ảnh sau khi tối ưu vẫn vượt quá giới hạn 5MB của máy chủ.');
-      }
-      playSound('chime');
-    } catch (err) {
-      console.warn('[SharedSpace] Image compression failed:', err);
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        setCustomFilePreview(dataUrl);
-        setNewImageUrl(dataUrl);
-        playSound('chime');
-      };
-      reader.readAsDataURL(file);
-    } finally {
-      setIsCompressing(false);
-    }
+    setImageReady(false);
+    setSelectedImageFile(file);
+    setNewImageUrl(URL.createObjectURL(file));
   };
 
   // Open Add Modal
-  const handleOpenAddModal = (preset?: typeof PRESET_PHOTOS[0]) => {
+  const handleOpenAddModal = () => {
     playSound('click');
-    setCustomFilePreview('');
+    setNewImageUrl('');
     setSelectedImageFile(null);
+    setImageReady(false);
     setSubmissionError('');
-    if (preset) {
-      setNewImageUrl(preset.url);
-      setNewCaption(preset.caption);
-      setNewTag(preset.tag);
-    } else {
-      setNewImageUrl(PRESET_PHOTOS[0].url);
-      setNewCaption('');
-      setNewTag('Hẹn hò');
-    }
+    setNewCaption('');
+    setNewTag('Hẹn hò');
     setNewDate(new Date().toISOString().split('T')[0]);
     setNewLocation('');
     setIsAddModalOpen(true);
@@ -226,26 +141,25 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   // Submit Add Memory
   const handleSubmitAddMemory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newImageUrl || isSubmittingMemory || isCompressing) {
+    if (!selectedImageFile || !imageReady || submitLock.current) {
       return;
     }
 
+    submitLock.current = true;
     setIsSubmittingMemory(true);
     setSubmissionError('');
     try {
-      let uploadFile = selectedImageFile;
-      if (isBackendMode) {
-        uploadFile ??= await fileFromUrl(newImageUrl);
-        if (!SUPPORTED_IMAGE_TYPES.includes(uploadFile.type)) {
-          throw new Error('Ảnh phải có định dạng PNG, JPEG hoặc WebP.');
-        }
-        if (uploadFile.size > MAX_BACKEND_IMAGE_BYTES) {
-          throw new Error('Kích thước ảnh sau khi tối ưu không được vượt quá 5MB.');
-        }
-      }
+      const uploadFile = await editorRef.current!.exportImage();
+      if (uploadFile.size > MAX_BACKEND_IMAGE_BYTES) throw new Error('Ảnh sau khi crop vượt giới hạn 5MB.');
+      const savedImageUrl = isBackendMode ? '' : await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Không thể đọc ảnh đã crop.'));
+        reader.readAsDataURL(uploadFile);
+      });
 
       await onAddMemory({
-        imageUrl: newImageUrl,
+        imageUrl: savedImageUrl,
         caption: newCaption.trim() || 'Một khoảnh khắc đáng nhớ của hai đứa.',
         date: newDate,
         location: newLocation.trim() || 'Nơi hẹn hò thân quen',
@@ -256,6 +170,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
 
       setIsAddModalOpen(false);
       setSelectedImageFile(null);
+      setNewImageUrl('');
       playSound('success');
       showToast(isBackendMode
         ? 'Đã lưu kỷ niệm vào Không gian chung!'
@@ -264,6 +179,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
       setSubmissionError(error instanceof Error ? error.message : 'Không thể lưu kỷ niệm. Vui lòng thử lại.');
       playSound('error');
     } finally {
+      submitLock.current = false;
       setIsSubmittingMemory(false);
     }
   };
@@ -714,113 +630,49 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
       {/* ------------------------------------------------------------- */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in select-none">
-          <div className="bg-white rounded-3xl max-w-sm w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 shadow-xl border border-rose-100 animate-scale-in">
+          <div role="dialog" aria-modal="true" aria-labelledby="add-memory-title" className="bg-white rounded-3xl max-w-sm w-full min-w-0 max-h-[90dvh] overflow-hidden flex flex-col shadow-xl border border-rose-100 animate-scale-in">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-              <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-rose-50 px-4 py-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
                   <Camera className="w-4 h-4" />
                 </div>
-                <h3 className="font-serif-romantic text-base font-bold text-stone-900">
+                <h3 id="add-memory-title" className="font-serif-romantic text-sm sm:text-base font-bold text-stone-900">
                   Thêm Kỷ Niệm Mới
                 </h3>
               </div>
               <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 hover:bg-stone-200 flex items-center justify-center"
+                disabled={isSubmittingMemory}
+                aria-label="Đóng"
+                onClick={() => { setIsAddModalOpen(false); setNewImageUrl(''); setSelectedImageFile(null); }}
+                className="w-11 h-11 shrink-0 rounded-full text-stone-500 hover:bg-rose-50 flex items-center justify-center"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitAddMemory} className="space-y-3.5 text-xs">
-              {/* Photo Selection / Preview */}
-              <div>
-                <label className="block text-[11px] font-bold text-stone-700 mb-1.5">
-                  1. Chọn ảnh kỷ niệm:
-                </label>
-
-                {/* Preview Box */}
-                <div className="relative rounded-2xl overflow-hidden aspect-video bg-stone-100 border-2 border-dashed border-rose-300 flex items-center justify-center group mb-2">
-                  <img
-                    src={newImageUrl}
-                    alt="Preview"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="px-3 py-1.5 bg-white text-stone-800 text-[11px] font-bold rounded-xl shadow-xs hover:bg-stone-100"
-                    >
-                      Đổi ảnh khác
-                    </button>
-                  </div>
-                </div>
-
-                {/* Actions: Upload custom file OR pick romantic presets */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={isCompressing}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 py-2 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 font-semibold rounded-xl text-[11px] flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <ImageIcon className="w-3.5 h-3.5 text-rose-500" />
-                    <span>{isCompressing ? 'Đang tối ưu ảnh...' : 'Tải ảnh từ máy (Tự động nén & đồng bộ)'}</span>
-                  </button>
-                </div>
-
-                {/* Preset Gallery Pills */}
-                <div className="mt-2.5">
-                  <span className="text-[10px] text-stone-400 block mb-1">
-                    Hoặc chọn nhanh ảnh kỷ niệm mẫu lãng mạn:
-                  </span>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {PRESET_PHOTOS.slice(0, 6).map((preset, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => {
-                          playSound('click');
-                          setNewImageUrl(preset.url);
-                          setSelectedImageFile(null);
-                          setSubmissionError('');
-                          if (!newCaption) setNewCaption(preset.caption);
-                          setNewTag(preset.tag);
-                        }}
-                        className={`relative rounded-xl overflow-hidden aspect-[4/3] border-2 transition-all ${
-                          newImageUrl === preset.url ? 'border-rose-500 ring-2 ring-rose-200' : 'border-stone-200 opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <img src={preset.url} alt={preset.title} className="w-full h-full object-cover" />
-                        <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] py-0.5 truncate px-1 text-center">
-                          {preset.title}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+            <form onSubmit={handleSubmitAddMemory} className="flex min-h-0 min-w-0 flex-col text-xs">
+              <div className="min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 space-y-3">
+              <fieldset disabled={isSubmittingMemory} className="space-y-2 min-w-0">
+                <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleFileChange} className="hidden" />
+                <button type="button" onClick={() => fileInputRef.current?.click()}
+                  className="w-full min-h-11 px-3 py-2 rounded-2xl border border-dashed border-rose-200 bg-rose-50 text-rose-700 font-semibold">
+                  {newImageUrl ? 'Đổi ảnh' : 'Tải ảnh từ thiết bị'}
+                </button>
+                {newImageUrl && <MemoryImageEditor key={newImageUrl} ref={editorRef} src={newImageUrl} disabled={isSubmittingMemory} onReady={setImageReady} />}
+                {newImageUrl && !imageReady && <p role="status" className="text-rose-600">Đang đọc ảnh. Nếu ảnh không hiển thị, vui lòng chọn ảnh khác.</p>}
+              </fieldset>
 
               {/* Caption Field */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-[11px] font-bold text-stone-700">
-                    2. Lời nhắn / Cảm xúc:
+                    Lời nhắn / Cảm xúc:
                   </label>
                   <span className="text-[10px] text-stone-400">{newCaption.length} / 5000</span>
                 </div>
                 <textarea
-                  rows={3}
+                  rows={2}
                   maxLength={5000}
                   value={newCaption}
                   onChange={(e) => setNewCaption(e.target.value)}
@@ -830,10 +682,10 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
               </div>
 
               {/* Metadata row: Location & Date */}
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 [&>div]:min-w-0 [&_input]:min-w-0">
                 <div>
                   <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                    3. Địa điểm:
+                    Địa điểm:
                   </label>
                   <input
                     type="text"
@@ -845,7 +697,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                    4. Ngày chụp:
+                    Ngày chụp:
                   </label>
                   <input
                     type="date"
@@ -859,7 +711,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
               {/* Tag Selection */}
               <div>
                 <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                  5. Chủ đề:
+                  Chủ đề:
                 </label>
                 <select
                   value={newTag}
@@ -887,10 +739,11 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                   <span>{submissionError}</span>
                 </div>
               )}
-              <div className="pt-2">
+              </div>
+              <div className="shrink-0 border-t border-rose-100 bg-white px-4 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <button
                   type="submit"
-                  disabled={isCompressing || isSubmittingMemory}
+                  disabled={!imageReady || isSubmittingMemory}
                   className="w-full py-3 px-4 bg-gradient-to-r from-rose-500 via-pink-600 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-rose-500/25 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
                 >
                   <Sparkles className="w-4 h-4" />

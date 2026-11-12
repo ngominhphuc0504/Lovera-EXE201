@@ -17,11 +17,23 @@ import {
   Users,
   Award,
   Lock,
-  AlertCircle
+  AlertCircle,
+  Timer,
+  RotateCcw,
+  Check,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
-import { CoupleData, PointHistoryItem, GardenStage, GardenSeason } from '../../types';
+import { CoupleData, PointHistoryItem, GardenStage, GardenSeason, GardenEcoMetrics, StageStatus } from '../../types';
 import { playSound } from '../../utils/audio';
 import { GardenTreeVisual } from './GardenTreeVisual';
+import { GARDEN_CONFIG } from '../../constants/gardenConfig';
+import { 
+  getStageStatus, 
+  getCooldownRemaining, 
+  formatCooldownTime, 
+  isTreeReadyToEvolve 
+} from '../../utils/gardenDecay';
 
 interface GardenScreenProps {
   couple: CoupleData;
@@ -34,6 +46,8 @@ interface GardenScreenProps {
   isWatering?: boolean;
   isFertilizing?: boolean;
   isSunbathing?: boolean;
+  ecoMetrics?: GardenEcoMetrics;
+  onEvolveTree?: () => void;
 }
 
 export const GardenScreen: React.FC<GardenScreenProps> = ({
@@ -47,6 +61,8 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
   isWatering = false,
   isFertilizing = false,
   isSunbathing = false,
+  ecoMetrics,
+  onEvolveTree,
 }) => {
   const { userA, userB } = couple;
 
@@ -64,6 +80,33 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
 
   // History list expand/collapse state (Default: show top 3 activities)
   const [isHistoryExpanded, setIsHistoryExpanded] = useState<boolean>(false);
+
+  // Fallback default eco-metrics if not provided
+  const metrics: GardenEcoMetrics = ecoMetrics || {
+    moisture: 75,
+    freshness: 80,
+    sunlight: 70,
+    lastUpdateUtc: new Date().toISOString(),
+    lastWaterUtc: null,
+    lastFertilizeUtc: null,
+    lastSunUtc: null,
+    completedCycles: 0,
+  };
+
+  // Real-time ticking for cooldown counter (pure visual, no API spam)
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Calculate live cooldowns (in milliseconds)
+  const nowDate = new Date(now);
+  const waterCooldown = getCooldownRemaining(metrics.lastWaterUtc, GARDEN_CONFIG.COOLDOWN_MS, nowDate);
+  const fertilizeCooldown = getCooldownRemaining(metrics.lastFertilizeUtc, GARDEN_CONFIG.COOLDOWN_MS, nowDate);
+  const sunCooldown = getCooldownRemaining(metrics.lastSunUtc, GARDEN_CONFIG.COOLDOWN_MS, nowDate);
 
   // Auto-dismiss toast message after 3.5s
   useEffect(() => {
@@ -235,18 +278,16 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
     ? 1000 - lovePoints
     : 0;
 
-  // Lịch sử chăm sóc của chính chủ (userA)
-  const userHistory = history.filter((item) => {
-    const byLower = item.by.toLowerCase();
-    return byLower.includes(userA.name.toLowerCase()) || !byLower.includes(userB.name.toLowerCase());
-  });
+  // Lịch sử chăm sóc đầy đủ của khu vườn (sắp xếp từ mới nhất đến cũ nhất)
+  const displayHistory = history;
+  const visibleHistory = isHistoryExpanded ? displayHistory : displayHistory.slice(0, 3);
 
-  // Calculate contributor stats
-  const alexCount = history.filter(h => h.by.toLowerCase().includes('alex')).length;
-  const samCount = history.filter(h => h.by.toLowerCase().includes('sam')).length;
-  const totalCount = Math.max(1, alexCount + samCount);
-  const alexPercent = Math.round((alexCount / totalCount) * 100);
-  const samPercent = 100 - alexPercent;
+  // Calculate contributor stats (tính theo tên userA và userB thực tế)
+  const userACount = history.filter(h => h.by.toLowerCase().includes(userA.name.toLowerCase())).length;
+  const userBCount = history.filter(h => userB.name && h.by.toLowerCase().includes(userB.name.toLowerCase())).length;
+  const totalCount = Math.max(1, userACount + userBCount);
+  const userAPercent = Math.round((userACount / totalCount) * 100);
+  const userBPercent = 100 - userAPercent;
 
   // Icon for history category
   const getActionIcon = (action: string, category?: string) => {
@@ -459,11 +500,71 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           )}
         </div>
 
-        {/* Stage Timeline Selector: 5 Stages */}
+        {/* Toast Warning/Notification Bar */}
+        {toastMessage && (
+          <div className="mb-2 p-2.5 bg-rose-50/95 backdrop-blur-md border border-rose-200 text-rose-800 text-xs rounded-2xl flex items-center justify-between shadow-sm animate-fade-in z-30 relative">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span className="font-semibold">{toastMessage}</span>
+            </div>
+            <button 
+              onClick={() => setToastMessage(null)} 
+              className="text-stone-400 hover:text-stone-600 text-xs font-bold px-1.5 py-0.5 rounded cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Completed Stage Review Banner */}
+        {effectivePreviewStage < realStage && (
+          <div className="mb-2 p-2 bg-amber-50/90 backdrop-blur-md border border-amber-200 text-amber-800 text-xs rounded-2xl flex items-center justify-between shadow-2xs animate-fade-in z-20 relative">
+            <div className="flex items-center gap-1.5">
+              <RotateCcw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>Đang xem lại <strong>Cấp {effectivePreviewStage} (Đã hoàn thành)</strong>. Không thể chăm sóc ở cấp cũ.</span>
+            </div>
+            <button
+              onClick={() => {
+                playSound('click');
+                setPreviewStage(realStage);
+              }}
+              className="px-2 py-0.5 bg-amber-600 text-white text-[10px] font-bold rounded-xl hover:bg-amber-700 active:scale-95 shrink-0 ml-1.5 cursor-pointer shadow-2xs"
+            >
+              Về Cấp {realStage} 🌱
+            </button>
+          </div>
+        )}
+
+        {/* Tree Evolution Ready Banner */}
+        {isTreeReadyToEvolve(metrics) && (
+          <div className="mb-2 p-2.5 bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 text-white rounded-2xl shadow-md flex items-center justify-between gap-2 animate-fade-in z-20 relative">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-yellow-200 shrink-0 animate-spin" />
+              <div>
+                <strong className="block text-xs font-bold leading-tight">Đạt 100% Cả 3 Chỉ Số! 🎉</strong>
+                <span className="text-[10px] text-pink-100 block">Khu vườn sẵn sàng hoàn thành cây & chuyển chu kỳ mới.</span>
+              </div>
+            </div>
+            {onEvolveTree && (
+              <button
+                onClick={() => {
+                  playSound('success');
+                  onEvolveTree();
+                }}
+                className="px-3 py-1.5 bg-white text-rose-600 font-extrabold text-[11px] rounded-xl shadow hover:bg-rose-50 active:scale-95 shrink-0 cursor-pointer"
+              >
+                Chuyển Cây 🌸
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Stage Timeline Selector: 5 Stages with 3 States (COMPLETED / CURRENT / LOCKED) */}
         <div className="grid grid-cols-5 gap-1 p-1 bg-white/85 backdrop-blur-md rounded-2xl border border-white/80 mb-3 shadow-2xs z-10 relative">
           {([1, 2, 3, 4, 5] as GardenStage[]).map((stg) => {
             const status = getStageStatus(stg, realStage);
             const isSelected = effectivePreviewStage === stg;
+
             const labels = {
               1: '🌱 Cấp 1',
               2: '🌿 Cấp 2',
@@ -535,34 +636,85 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           </div>
         </div>
 
-        {/* Garden Eco-Metrics */}
-        <div className="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-emerald-300/60 text-xs z-10 relative">
-          <div className="bg-white/85 backdrop-blur-md rounded-2xl p-2.5 border border-emerald-200/80 shadow-2xs flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="text-base">💧</span>
-              <div>
-                <span className="text-[10px] text-stone-500 block leading-tight">Độ ẩm đất</span>
-                <strong className="text-xs font-bold text-emerald-800">88% (Màu mỡ)</strong>
+        {/* ----------------------------------------------------------- */}
+        {/* GARDEN ECO-METRICS (ĐỘ ẨM - TƯƠI TỐT - ÁNH NẮNG THỜI GIAN THỰC) */}
+        {/* ----------------------------------------------------------- */}
+        <div className="grid grid-cols-3 gap-1.5 mt-3 pt-2.5 border-t border-emerald-300/60 text-xs z-10 relative">
+          
+          {/* 1. Độ ẩm đất (Moisture) */}
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 border border-sky-200/90 shadow-2xs space-y-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <span className="text-sm">💧</span>
+                <span className="text-[10px] font-bold text-sky-900">Độ ẩm</span>
               </div>
+              <strong className="text-[11px] font-extrabold text-sky-800">
+                {metrics.moisture}%
+              </strong>
             </div>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <div className="w-full h-1.5 bg-sky-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-sky-400 to-blue-600 rounded-full transition-all duration-500"
+                style={{ width: `${metrics.moisture}%` }}
+              ></div>
+            </div>
+            <div className="flex items-center justify-between text-[9px] text-stone-500 pt-0.5">
+              <span>{metrics.moisture >= 70 ? 'Màu mỡ' : metrics.moisture >= 30 ? 'Vừa đủ' : 'Khô cằn'}</span>
+              <span className="text-stone-400">-2%/5m</span>
+            </div>
           </div>
 
-          <div className="bg-white/85 backdrop-blur-md rounded-2xl p-2.5 border border-emerald-200/80 shadow-2xs flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="text-base">🌿</span>
-              <div>
-                <span className="text-[10px] text-stone-500 block leading-tight">Độ tươi tốt</span>
-                <strong className="text-xs font-bold text-teal-800">96% (Xanh tươi)</strong>
+          {/* 2. Độ tươi tốt (Freshness) */}
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 border border-emerald-200/90 shadow-2xs space-y-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <span className="text-sm">🌿</span>
+                <span className="text-[10px] font-bold text-emerald-900">Tươi tốt</span>
               </div>
+              <strong className="text-[11px] font-extrabold text-emerald-800">
+                {metrics.freshness}%
+              </strong>
             </div>
-            <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse"></span>
+            <div className="w-full h-1.5 bg-emerald-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-emerald-400 to-teal-600 rounded-full transition-all duration-500"
+                style={{ width: `${metrics.freshness}%` }}
+              ></div>
+            </div>
+            <div className="flex items-center justify-between text-[9px] text-stone-500 pt-0.5">
+              <span>{metrics.freshness >= 70 ? 'Xanh mượt' : metrics.freshness >= 30 ? 'Khỏe mạnh' : 'Héo úa'}</span>
+              <span className="text-stone-400">-1%/5m</span>
+            </div>
           </div>
+
+          {/* 3. Ánh nắng (Sunlight) */}
+          <div className="bg-white/90 backdrop-blur-md rounded-2xl p-2 border border-amber-200/90 shadow-2xs space-y-1">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <span className="text-sm">☀️</span>
+                <span className="text-[10px] font-bold text-amber-900">Ánh nắng</span>
+              </div>
+              <strong className="text-[11px] font-extrabold text-amber-800">
+                {metrics.sunlight}%
+              </strong>
+            </div>
+            <div className="w-full h-1.5 bg-amber-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all duration-500"
+                style={{ width: `${metrics.sunlight}%` }}
+              ></div>
+            </div>
+            <div className="flex items-center justify-between text-[9px] text-stone-500 pt-0.5">
+              <span>{metrics.sunlight >= 70 ? 'Rực rỡ' : metrics.sunlight >= 30 ? 'Ấm áp' : 'Thiếu sáng'}</span>
+              <span className="text-stone-400">-3%/5m</span>
+            </div>
+          </div>
+
         </div>
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 3. GARDEN CARE ACTION TOOLS (Thay thế nút điểm danh cũ)        */}
+      {/* 3. GARDEN CARE ACTION TOOLS (CÓ COOLDOWN VÀ CHỐNG SPAM)       */}
       {/* ------------------------------------------------------------- */}
       <div className="mx-4 bg-white/95 rounded-3xl p-4 border border-emerald-100 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
@@ -578,58 +730,196 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
         <div className="grid grid-cols-3 gap-2">
           
           {/* Water Tool */}
-          <button
-            onClick={() => {
-              playSound('water');
-              onWater();
-            }}
-            disabled={isWatering}
-            className="p-3 rounded-2xl bg-gradient-to-b from-sky-50 to-sky-100/70 border border-sky-200 hover:border-sky-300 text-center space-y-1 transition-all active:scale-95 shadow-2xs group"
-          >
-            <div className="w-9 h-9 rounded-xl bg-sky-500 text-white mx-auto flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-              <Droplets className="w-5 h-5 fill-sky-200" />
-            </div>
-            <strong className="block text-xs font-bold text-sky-900">Tưới Cây</strong>
-            <span className="inline-block text-[10px] font-extrabold text-sky-700 bg-white px-2 py-0.2 rounded-full border border-sky-200">
-              +10 pts
-            </span>
-          </button>
+          {(() => {
+            const isFull = metrics.moisture >= 100;
+            const inCooldown = waterCooldown > 0;
+            const isOldStage = effectivePreviewStage !== realStage;
+            const isDisabled = isWatering || isFull || inCooldown || isOldStage;
+
+            return (
+              <button
+                onClick={() => {
+                  if (isOldStage) {
+                    playSound('error');
+                    setToastMessage(`Hãy chuyển về Cấp ${realStage} để chăm sóc cây!`);
+                    return;
+                  }
+                  if (isFull) {
+                    playSound('error');
+                    setToastMessage('Độ ẩm đất đã đạt 100%, không thể tưới thêm!');
+                    return;
+                  }
+                  if (inCooldown) {
+                    playSound('error');
+                    setToastMessage(`Hành động đang hồi chiêu: còn ${formatCooldownTime(waterCooldown)}.`);
+                    return;
+                  }
+                  playSound('water');
+                  onWater();
+                }}
+                disabled={isDisabled}
+                className={`p-3 rounded-2xl border text-center space-y-1 transition-all shadow-2xs group ${
+                  isDisabled
+                    ? 'bg-stone-50 border-stone-200 opacity-60 cursor-not-allowed'
+                    : 'bg-gradient-to-b from-sky-50 to-sky-100/70 border-sky-200 hover:border-sky-300 active:scale-95 cursor-pointer'
+                }`}
+              >
+                <div className={`w-9 h-9 rounded-xl mx-auto flex items-center justify-center shadow-xs transition-transform ${
+                  isDisabled ? 'bg-stone-400 text-white' : 'bg-sky-500 text-white group-hover:scale-105'
+                }`}>
+                  <Droplets className="w-5 h-5 fill-sky-200" />
+                </div>
+                <strong className={`block text-xs font-bold ${isDisabled ? 'text-stone-500' : 'text-sky-900'}`}>
+                  Tưới Cây
+                </strong>
+                <span className={`inline-block text-[10px] font-extrabold px-2 py-0.2 rounded-full border ${
+                  isOldStage
+                    ? 'text-stone-400 bg-stone-100 border-stone-200'
+                    : isFull
+                    ? 'text-amber-700 bg-amber-50 border-amber-200'
+                    : inCooldown
+                    ? 'text-sky-600 bg-sky-50 border-sky-200 font-mono'
+                    : 'text-sky-700 bg-white border-sky-200'
+                }`}>
+                  {isOldStage
+                    ? 'Cấp cũ'
+                    : isFull
+                    ? 'Đầy 100%'
+                    : inCooldown
+                    ? formatCooldownTime(waterCooldown)
+                    : '+10 pts'}
+                </span>
+              </button>
+            );
+          })()}
 
           {/* Fertilize Tool */}
-          <button
-            onClick={() => {
-              playSound('click');
-              onFertilize();
-            }}
-            disabled={isFertilizing}
-            className="p-3 rounded-2xl bg-gradient-to-b from-emerald-50 to-emerald-100/70 border border-emerald-200 hover:border-emerald-300 text-center space-y-1 transition-all active:scale-95 shadow-2xs group"
-          >
-            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white mx-auto flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-              <Sprout className="w-5 h-5" />
-            </div>
-            <strong className="block text-xs font-bold text-emerald-900">Bón Phân</strong>
-            <span className="inline-block text-[10px] font-extrabold text-emerald-700 bg-white px-2 py-0.2 rounded-full border border-emerald-200">
-              +10 pts
-            </span>
-          </button>
+          {(() => {
+            const isFull = metrics.freshness >= 100;
+            const inCooldown = fertilizeCooldown > 0;
+            const isOldStage = effectivePreviewStage !== realStage;
+            const isDisabled = isFertilizing || isFull || inCooldown || isOldStage;
+
+            return (
+              <button
+                onClick={() => {
+                  if (isOldStage) {
+                    playSound('error');
+                    setToastMessage(`Hãy chuyển về Cấp ${realStage} để chăm sóc cây!`);
+                    return;
+                  }
+                  if (isFull) {
+                    playSound('error');
+                    setToastMessage('Độ tươi tốt đã đạt 100%, không thể bón thêm!');
+                    return;
+                  }
+                  if (inCooldown) {
+                    playSound('error');
+                    setToastMessage(`Hành động đang hồi chiêu: còn ${formatCooldownTime(fertilizeCooldown)}.`);
+                    return;
+                  }
+                  playSound('click');
+                  onFertilize();
+                }}
+                disabled={isDisabled}
+                className={`p-3 rounded-2xl border text-center space-y-1 transition-all shadow-2xs group ${
+                  isDisabled
+                    ? 'bg-stone-50 border-stone-200 opacity-60 cursor-not-allowed'
+                    : 'bg-gradient-to-b from-emerald-50 to-emerald-100/70 border-emerald-200 hover:border-emerald-300 active:scale-95 cursor-pointer'
+                }`}
+              >
+                <div className={`w-9 h-9 rounded-xl mx-auto flex items-center justify-center shadow-xs transition-transform ${
+                  isDisabled ? 'bg-stone-400 text-white' : 'bg-emerald-600 text-white group-hover:scale-105'
+                }`}>
+                  <Sprout className="w-5 h-5" />
+                </div>
+                <strong className={`block text-xs font-bold ${isDisabled ? 'text-stone-500' : 'text-emerald-900'}`}>
+                  Bón Phân
+                </strong>
+                <span className={`inline-block text-[10px] font-extrabold px-2 py-0.2 rounded-full border ${
+                  isOldStage
+                    ? 'text-stone-400 bg-stone-100 border-stone-200'
+                    : isFull
+                    ? 'text-amber-700 bg-amber-50 border-amber-200'
+                    : inCooldown
+                    ? 'text-emerald-600 bg-emerald-50 border-emerald-200 font-mono'
+                    : 'text-emerald-700 bg-white border-emerald-200'
+                }`}>
+                  {isOldStage
+                    ? 'Cấp cũ'
+                    : isFull
+                    ? 'Đầy 100%'
+                    : inCooldown
+                    ? formatCooldownTime(fertilizeCooldown)
+                    : '+10 pts'}
+                </span>
+              </button>
+            );
+          })()}
 
           {/* Sunbath Tool */}
-          <button
-            onClick={() => {
-              playSound('chime');
-              onSunbath();
-            }}
-            disabled={isSunbathing}
-            className="p-3 rounded-2xl bg-gradient-to-b from-amber-50 to-amber-100/70 border border-amber-200 hover:border-amber-300 text-center space-y-1 transition-all active:scale-95 shadow-2xs group"
-          >
-            <div className="w-9 h-9 rounded-xl bg-amber-500 text-white mx-auto flex items-center justify-center shadow-xs group-hover:scale-105 transition-transform">
-              <Sun className="w-5 h-5 fill-amber-200" />
-            </div>
-            <strong className="block text-xs font-bold text-amber-900">Tắm Nắng</strong>
-            <span className="inline-block text-[10px] font-extrabold text-amber-700 bg-white px-2 py-0.2 rounded-full border border-amber-200">
-              +5 pts
-            </span>
-          </button>
+          {(() => {
+            const isFull = metrics.sunlight >= 100;
+            const inCooldown = sunCooldown > 0;
+            const isOldStage = effectivePreviewStage !== realStage;
+            const isDisabled = isSunbathing || isFull || inCooldown || isOldStage;
+
+            return (
+              <button
+                onClick={() => {
+                  if (isOldStage) {
+                    playSound('error');
+                    setToastMessage(`Hãy chuyển về Cấp ${realStage} để chăm sóc cây!`);
+                    return;
+                  }
+                  if (isFull) {
+                    playSound('error');
+                    setToastMessage('Ánh nắng đã đạt 100%, không thể tắm nắng thêm!');
+                    return;
+                  }
+                  if (inCooldown) {
+                    playSound('error');
+                    setToastMessage(`Hành động đang hồi chiêu: còn ${formatCooldownTime(sunCooldown)}.`);
+                    return;
+                  }
+                  playSound('chime');
+                  onSunbath();
+                }}
+                disabled={isDisabled}
+                className={`p-3 rounded-2xl border text-center space-y-1 transition-all shadow-2xs group ${
+                  isDisabled
+                    ? 'bg-stone-50 border-stone-200 opacity-60 cursor-not-allowed'
+                    : 'bg-gradient-to-b from-amber-50 to-amber-100/70 border-amber-200 hover:border-amber-300 active:scale-95 cursor-pointer'
+                }`}
+              >
+                <div className={`w-9 h-9 rounded-xl mx-auto flex items-center justify-center shadow-xs transition-transform ${
+                  isDisabled ? 'bg-stone-400 text-white' : 'bg-amber-500 text-white group-hover:scale-105'
+                }`}>
+                  <Sun className="w-5 h-5 fill-amber-200" />
+                </div>
+                <strong className={`block text-xs font-bold ${isDisabled ? 'text-stone-500' : 'text-amber-900'}`}>
+                  Tắm Nắng
+                </strong>
+                <span className={`inline-block text-[10px] font-extrabold px-2 py-0.2 rounded-full border ${
+                  isOldStage
+                    ? 'text-stone-400 bg-stone-100 border-stone-200'
+                    : isFull
+                    ? 'text-amber-700 bg-amber-50 border-amber-200'
+                    : inCooldown
+                    ? 'text-amber-600 bg-amber-50 border-amber-200 font-mono'
+                    : 'text-amber-700 bg-white border-amber-200'
+                }`}>
+                  {isOldStage
+                    ? 'Cấp cũ'
+                    : isFull
+                    ? 'Đầy 100%'
+                    : inCooldown
+                    ? formatCooldownTime(sunCooldown)
+                    : '+5 pts'}
+                </span>
+              </button>
+            );
+          })()}
         </div>
 
         {/* Quick Link to Space Memories */}
@@ -663,18 +953,18 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
         <div className="flex items-center justify-between text-xs font-bold px-1">
           <div className="flex items-center gap-1.5 text-rose-700">
             <img src={userA.avatar} alt={userA.name} className="w-5 h-5 rounded-full object-cover border border-rose-200" />
-            <span>{userA.name} ({alexPercent}%)</span>
+            <span>{userA.name} ({userAPercent}%)</span>
           </div>
 
           <div className="flex items-center gap-1.5 text-purple-700">
-            <span>{userB.name} ({samPercent}%)</span>
+            <span>{userB.name} ({userBPercent}%)</span>
             <img src={userB.avatar} alt={userB.name} className="w-5 h-5 rounded-full object-cover border border-purple-200" />
           </div>
         </div>
 
         <div className="w-full h-2.5 bg-stone-100 rounded-full overflow-hidden flex shadow-inner">
-          <div className="bg-gradient-to-r from-rose-500 to-pink-500 h-full" style={{ width: `${alexPercent}%` }}></div>
-          <div className="bg-gradient-to-r from-purple-500 to-indigo-500 h-full" style={{ width: `${samPercent}%` }}></div>
+          <div className="bg-gradient-to-r from-rose-500 to-pink-500 h-full" style={{ width: `${userAPercent}%` }}></div>
+          <div className="bg-gradient-to-r from-purple-500 to-indigo-500 h-full" style={{ width: `${userBPercent}%` }}></div>
         </div>
 
         <p className="text-[11px] text-stone-500 text-center italic pt-0.5">
@@ -683,7 +973,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* 5. POINT HISTORY & ACTIVITY LOG (Đầy đủ thời gian & filter)    */}
+      {/* 5. POINT HISTORY & ACTIVITY LOG (THU GỌN / MỞ RỘNG MƯỢT MÀ)    */}
       {/* ------------------------------------------------------------- */}
       <div className="mx-4 bg-white/95 rounded-3xl p-4 border border-stone-200/80 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
@@ -694,61 +984,94 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
             </h4>
           </div>
           <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-bold border border-emerald-200 shadow-2xs">
-            {userHistory.length} hoạt động
+            {displayHistory.length} hoạt động
           </span>
         </div>
 
-        {/* History List (Chính chủ) */}
-        {userHistory.length === 0 ? (
+        {/* History List */}
+        {displayHistory.length === 0 ? (
           <div className="py-8 text-center text-xs text-stone-400 space-y-2 bg-stone-50/60 rounded-2xl border border-dashed border-stone-200">
             <p className="font-medium">Chưa có lịch sử chăm sóc nào.</p>
             <p className="text-[10px] text-stone-400">Hãy nhấn tưới cây hoặc bón phân để tích lũy điểm đầu tiên!</p>
           </div>
         ) : (
-          <div className="space-y-2 max-h-80 overflow-y-auto pr-1 pb-1">
-            {userHistory.map((item) => {
-              const avatar = userA.avatar;
-              const icon = getActionIcon(item.action, item.category);
+          <div className="space-y-2.5">
+            <div className={`space-y-2 ${isHistoryExpanded ? 'max-h-80 sm:max-h-96 overflow-y-auto pr-1 pb-1' : ''}`}>
+              {visibleHistory.map((item) => {
+                const isUserA = item.by.toLowerCase().includes(userA.name.toLowerCase());
+                const isUserB = Boolean(userB.name && item.by.toLowerCase().includes(userB.name.toLowerCase()));
+                const actorName = isUserA ? `Bạn (${userA.name})` : isUserB ? userB.name : item.by;
+                const actorAvatar = isUserA ? userA.avatar : isUserB ? userB.avatar : userA.avatar;
+                const icon = getActionIcon(item.action, item.category);
 
-              return (
-                <div
-                  key={item.id}
-                  className="p-3 rounded-2xl bg-stone-50/90 hover:bg-emerald-50/40 border border-stone-100 transition-colors flex items-center justify-between text-xs"
-                >
-                  <div className="flex items-center gap-2.5">
-                    {/* User Avatar with action badge */}
-                    <div className="relative shrink-0">
-                      <img
-                        src={avatar}
-                        alt={userA.name}
-                        className="w-8 h-8 rounded-xl object-cover border border-stone-200"
-                      />
-                      <span className="absolute -bottom-1 -right-1 text-xs bg-white rounded-full shadow-2xs border border-stone-100 px-0.5">
-                        {icon}
-                      </span>
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <p className="font-bold text-stone-800 text-[11px] leading-tight">
-                        {item.action}
-                      </p>
-                      <div className="flex items-center gap-1.5 text-[10px] text-stone-400">
-                        <span className="font-semibold text-rose-600">Bạn ({userA.name})</span>
-                        <span>•</span>
-                        <span className="flex items-center gap-0.5 text-stone-500">
-                          <Clock className="w-2.5 h-2.5" />
-                          <span>{item.timestamp}</span>
+                return (
+                  <div
+                    key={item.id}
+                    className="p-3 rounded-2xl bg-stone-50/90 hover:bg-emerald-50/40 border border-stone-100 transition-colors flex items-center justify-between text-xs"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                      {/* User Avatar with action badge */}
+                      <div className="relative shrink-0">
+                        <img
+                          src={actorAvatar}
+                          alt={actorName}
+                          className="w-8 h-8 rounded-xl object-cover border border-stone-200"
+                        />
+                        <span className="absolute -bottom-1 -right-1 text-xs bg-white rounded-full shadow-2xs border border-stone-100 px-0.5">
+                          {icon}
                         </span>
                       </div>
-                    </div>
-                  </div>
 
-                  <span className="font-extrabold text-emerald-700 text-xs bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200/80 shrink-0 shadow-2xs">
-                    +{item.points} pts
-                  </span>
-                </div>
-              );
-            })}
+                      <div className="space-y-0.5 min-w-0">
+                        <p className="font-bold text-stone-800 text-[11px] leading-tight truncate">
+                          {item.action}
+                        </p>
+                        <div className="flex items-center gap-1.5 text-[10px] text-stone-400">
+                          <span className={`font-semibold ${isUserA ? 'text-rose-600' : 'text-purple-600'} truncate`}>
+                            {actorName}
+                          </span>
+                          <span>•</span>
+                          <span className="flex items-center gap-0.5 text-stone-500 shrink-0">
+                            <Clock className="w-2.5 h-2.5" />
+                            <span>{item.timestamp}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <span className="font-extrabold text-emerald-700 text-xs bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200/80 shrink-0 shadow-2xs">
+                      +{item.points} pts
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Expand / Collapse Button (Chỉ hiển thị khi có nhiều hơn 3 hoạt động) */}
+            {displayHistory.length > 3 && (
+              <button
+                onClick={() => {
+                  playSound('click');
+                  setIsHistoryExpanded(prev => !prev);
+                }}
+                className={`w-full py-2.5 px-3 rounded-2xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 active:scale-98 cursor-pointer shadow-2xs ${
+                  isHistoryExpanded
+                    ? 'bg-stone-50 hover:bg-stone-100 text-stone-600 border-stone-200'
+                    : 'bg-emerald-50/80 hover:bg-emerald-100/90 text-emerald-700 border-emerald-200'
+                }`}
+              >
+                <span>
+                  {isHistoryExpanded
+                    ? 'Thu gọn lịch sử'
+                    : `Xem tất cả lịch sử (${displayHistory.length})`}
+                </span>
+                {isHistoryExpanded ? (
+                  <ChevronUp className="w-3.5 h-3.5" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
           </div>
         )}
       </div>
