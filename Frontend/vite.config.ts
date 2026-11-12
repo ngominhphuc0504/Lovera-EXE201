@@ -17,7 +17,7 @@ export default defineConfig(({mode}) => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || 'https://opt-souls-router-silicon.trycloudflare.com',
+          target: env.VITE_BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || 'https://has-intent-manufacturing-file.trycloudflare.com',
           changeOrigin: true,
           secure: false,
         },

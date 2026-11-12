@@ -89,10 +89,33 @@ export default function App() {
     resolvedPoints = Math.max(resolvedPoints, 100);
     localStorage.setItem('lovera_love_points', String(resolvedPoints));
 
+    // Custom Nicknames & Avatars from local persistence
+    const savedMyNickname = localStorage.getItem('lovera_my_nickname');
+    const savedPartnerNickname = localStorage.getItem('lovera_partner_nickname');
+    const savedMyAvatar = localStorage.getItem('lovera_my_avatar') || localStorage.getItem('lovera_alex_avatar');
+    const savedPartnerAvatar = localStorage.getItem('lovera_partner_avatar');
+
+    const validMyAvatar: string = (savedMyAvatar && isValidDisplayAvatar(savedMyAvatar) && !savedMyAvatar.startsWith('/api/'))
+      ? savedMyAvatar
+      : stored.userA.avatar;
+    const validPartnerAvatar: string = (savedPartnerAvatar && isValidDisplayAvatar(savedPartnerAvatar) && !savedPartnerAvatar.startsWith('/api/'))
+      ? savedPartnerAvatar
+      : stored.userB.avatar;
+
     const next: CoupleData = {
       ...stored,
       startDate: resolvedStartDate,
       lovePoints: resolvedPoints,
+      userA: {
+        ...stored.userA,
+        name: savedMyNickname || stored.userA.name,
+        avatar: validMyAvatar,
+      },
+      userB: {
+        ...stored.userB,
+        name: savedPartnerNickname || stored.userB.name,
+        avatar: validPartnerAvatar,
+      }
     };
     saveStoredData(STORAGE_KEYS.COUPLE, next);
     return next;
@@ -304,6 +327,8 @@ export default function App() {
           t.startsWith('[ANNIVERSARY_DATE]:') ||
           t.startsWith('[GARDEN_POINTS]:') ||
           t.startsWith('[LOVE_POINTS]:') ||
+          t.startsWith('[NICKNAME_PAIR]:') ||
+          t.startsWith('[PARTNER_NAME]:') ||
           t.startsWith('[GARDEN_METRICS]:')
         );
       };
@@ -344,7 +369,54 @@ export default function App() {
         return Boolean(myId && myId !== 'usr_alex' && creator === myId);
       };
 
-      // 1. Detect if partner published their profile name via memory tag
+      // 1. Detect if partner published nickname pair via memory tag
+      const nicknamePairMem = items.find(m =>
+        m.text && m.text.startsWith('[NICKNAME_PAIR]:')
+      );
+      if (nicknamePairMem?.text) {
+        try {
+          const raw = nicknamePairMem.text.replace('[NICKNAME_PAIR]:', '').trim();
+          const parsed = JSON.parse(raw);
+          const isFromPartner = parsed.senderId && myId && parsed.senderId.toLowerCase() !== myId.toLowerCase();
+          if (isFromPartner) {
+            if (parsed.senderName) {
+              localStorage.setItem('lovera_partner_nickname', parsed.senderName);
+            }
+            if (parsed.partnerName) {
+              localStorage.setItem('lovera_my_nickname', parsed.partnerName);
+            }
+            setCouple(prev => {
+              if (!active()) return prev;
+              const nextMy = parsed.partnerName || prev.userA.name;
+              const nextPartner = parsed.senderName || prev.userB.name;
+              if (prev.userA.name === nextMy && prev.userB.name === nextPartner) return prev;
+              const next = {
+                ...prev,
+                userA: { ...prev.userA, name: nextMy },
+                userB: { ...prev.userB, name: nextPartner },
+              };
+              saveStoredData(STORAGE_KEYS.COUPLE, next);
+              return next;
+            });
+          }
+        } catch (e) {}
+      }
+
+      const partnerNickMem = items.find(m => isPartnerMemory(m) && m.text && m.text.startsWith('[PARTNER_NAME]:'));
+      if (partnerNickMem?.text) {
+        const myAssignedNick = partnerNickMem.text.replace('[PARTNER_NAME]:', '').trim();
+        if (myAssignedNick) {
+          localStorage.setItem('lovera_my_nickname', myAssignedNick);
+          setCouple(prev => {
+            if (!active() || prev.userA.name === myAssignedNick) return prev;
+            const next = { ...prev, userA: { ...prev.userA, name: myAssignedNick } };
+            saveStoredData(STORAGE_KEYS.COUPLE, next);
+            return next;
+          });
+        }
+      }
+
+      // 1.1 Detect if partner published their profile name via memory tag
       const partnerNameMem = items.find(m =>
         isPartnerMemory(m) && m.text && (
           m.text.startsWith('[PROFILE_NAME]:') ||
@@ -458,19 +530,14 @@ export default function App() {
         }
       }
 
-      // Find latest avatar photo uploaded by partner on the backend timeline
-      let partnerAvatarMem = items.find(m =>
-        isPartnerMemory(m) && m.hasImage && (
+      // Find latest genuine avatar photo uploaded by partner on the backend timeline
+      const partnerAvatarMem = items.find(m =>
+        !isMyMemory(m) && m.hasImage && m.text && (
           m.text === '[AVATAR]' ||
           m.text === '[AVATAR_PROFILE]' ||
-          m.text?.startsWith('[AVATAR:')
+          m.text.startsWith('[AVATAR:')
         )
       );
-
-      // Fallback: If no explicit [AVATAR] tag yet, check for any memory image uploaded by partner
-      if (!partnerAvatarMem) {
-        partnerAvatarMem = items.find(m => isPartnerMemory(m) && m.hasImage);
-      }
 
       if (partnerAvatarMem) {
         const currentPartnerAv = couple.userB.avatar;
@@ -487,12 +554,13 @@ export default function App() {
             lastSyncedPartnerAvatarMemId.current = partnerAvatarMem.id;
             const realPartnerId = (partnerAvatarMem.creatorUserId || partnerAvatarMem.userId || partnerId || '').toLowerCase();
 
+            localStorage.setItem('lovera_partner_avatar', dataUrl);
+            saveUserAvatar('partner', dataUrl);
             if (realPartnerId) saveUserAvatar(realPartnerId, dataUrl);
             if (couple.userB.name) saveUserAvatar(couple.userB.name, dataUrl);
             if (couple.userB.email) saveUserAvatar(couple.userB.email, dataUrl);
 
             setCouple(prev => {
-
               if (!active()) return prev;
               if (prev.userB.avatar === dataUrl && prev.userB.name === (detectedPartnerName || prev.userB.name)) {
                 return prev;
@@ -515,8 +583,13 @@ export default function App() {
 
       // If userA avatar is still default mock or unset or starts with /api/, load from memory or profile
       if (!isValidDisplayAvatar(couple.userA.avatar) || couple.userA.avatar.includes('unsplash.com') || couple.userA.avatar.startsWith('/api/') || couple.userA.avatar.startsWith('blob:')) {
-        const myAvatarMem = items.find(m => isMyMemory(m) && (m.text === '[AVATAR]' || m.text === '[AVATAR_PROFILE]'))
-          || items.find(m => isMyMemory(m));
+        const myAvatarMem = items.find(m =>
+          isMyMemory(m) && m.hasImage && m.text && (
+            m.text === '[AVATAR]' ||
+            m.text === '[AVATAR_PROFILE]' ||
+            m.text.startsWith('[AVATAR:')
+          )
+        );
 
         if (myAvatarMem && lastSyncedMyAvatarMemId.current !== myAvatarMem.id) {
           try {
@@ -524,6 +597,9 @@ export default function App() {
             const dataUrl = await blobToDataUrl(blob);
             if (!active()) return false;
             lastSyncedMyAvatarMemId.current = myAvatarMem.id;
+            localStorage.setItem('lovera_my_avatar', dataUrl);
+            localStorage.setItem('lovera_alex_avatar', dataUrl);
+            saveUserAvatar('me', dataUrl);
             if (myId) saveUserAvatar(myId, dataUrl);
             if (couple.userA.name) saveUserAvatar(couple.userA.name, dataUrl);
             setCouple(prev => {
@@ -540,6 +616,9 @@ export default function App() {
             if (myBlob) {
               const dataUrl = await blobToDataUrl(myBlob);
               if (!active()) return false;
+              localStorage.setItem('lovera_my_avatar', dataUrl);
+              localStorage.setItem('lovera_alex_avatar', dataUrl);
+              saveUserAvatar('me', dataUrl);
               if (myId) saveUserAvatar(myId, dataUrl);
               if (couple.userA.name) saveUserAvatar(couple.userA.name, dataUrl);
               setCouple(prev => {
@@ -660,18 +739,18 @@ export default function App() {
           const knownPartner = findKnownUserById(otherId);
 
           const savedPartnerName =
+            (localStorage.getItem('lovera_partner_nickname') && localStorage.getItem('lovera_partner_nickname') !== 'Người Thương' ? localStorage.getItem('lovera_partner_nickname') : null) ||
             (otherId ? localStorage.getItem(`lovera_partner_name_${otherId.toLowerCase()}`) : null) ||
-            (status.couple?.coupleId ? localStorage.getItem(`lovera_partner_name_${status.couple.coupleId}`) : null) ||
-            (localStorage.getItem('lovera_partner_nickname') && localStorage.getItem('lovera_partner_nickname') !== 'Người Thương' ? localStorage.getItem('lovera_partner_nickname') : null);
+            (status.couple?.coupleId ? localStorage.getItem(`lovera_partner_name_${status.couple.coupleId}`) : null);
 
           const resolvedName =
+            savedPartnerName ||
             (status.couple as any)?.partner?.displayName ||
             (status.couple as any)?.partner?.name ||
             (status as any)?.partner?.displayName ||
             (status as any)?.partner?.name ||
             (status.couple as any)?.members?.find((m: any) => (m.userId || m.id)?.toLowerCase() !== profile.id.toLowerCase())?.displayName ||
             (status.couple as any)?.members?.find((m: any) => (m.userId || m.id)?.toLowerCase() !== profile.id.toLowerCase())?.name ||
-            savedPartnerName ||
             knownPartner?.name ||
             findKnownUserByName(prev.userB.name)?.name ||
             (prev.userB.name && prev.userB.name !== 'Chưa kết nối' && prev.userB.name !== 'Người Thương' ? prev.userB.name : '') ||
@@ -686,13 +765,21 @@ export default function App() {
 
           const resolvedId = (status.couple as any)?.partner?.userId || (status as any)?.partner?.userId || otherId || prev.userB.id || 'usr_partner';
 
-          const resolvedPartnerAvatar =
-            (isValidDisplayAvatar(status.couple?.partner?.avatarUrl) ? status.couple?.partner?.avatarUrl : '') ||
-            getUserAvatar(resolvedId) ||
-            getUserAvatar(resolvedName) ||
-            getUserAvatar(resolvedEmail) ||
-            (knownPartner && isValidDisplayAvatar(knownPartner.avatar) && knownPartner.avatar ? knownPartner.avatar : '') ||
-            (isValidDisplayAvatar(prev.userB.avatar) ? prev.userB.avatar : INITIAL_COUPLE.userB.avatar);
+          const savedPartnerAvatar =
+            localStorage.getItem('lovera_partner_avatar') ||
+            getUserAvatar('partner') ||
+            (otherId ? localStorage.getItem(`lovera_avatar_${otherId.toLowerCase()}`) : null) ||
+            getUserAvatar(resolvedId);
+
+          const resolvedPartnerAvatar: string =
+            ((savedPartnerAvatar && isValidDisplayAvatar(savedPartnerAvatar) && !savedPartnerAvatar.startsWith('/api/'))
+              ? savedPartnerAvatar
+              : (isValidDisplayAvatar(status.couple?.partner?.avatarUrl) ? status.couple?.partner?.avatarUrl : '') ||
+                getUserAvatar(resolvedName) ||
+                getUserAvatar(resolvedEmail) ||
+                (knownPartner && isValidDisplayAvatar(knownPartner.avatar) && knownPartner.avatar ? knownPartner.avatar : '') ||
+                (isValidDisplayAvatar(prev.userB.avatar) ? prev.userB.avatar : INITIAL_COUPLE.userB.avatar)) ||
+            INITIAL_COUPLE.userB.avatar;
 
           partnerData = {
             ...prev.userB,
@@ -715,12 +802,21 @@ export default function App() {
           };
         }
 
-        const resolvedUserAAvatar =
-          (isValidDisplayAvatar(profile.avatarUrl) ? profile.avatarUrl : '') ||
+        const savedMyAvatar =
+          localStorage.getItem('lovera_my_avatar') ||
+          localStorage.getItem('lovera_alex_avatar') ||
+          (profile.id ? localStorage.getItem(`lovera_avatar_${profile.id.toLowerCase()}`) : null) ||
           getUserAvatar(profile.id) ||
-          getUserAvatar(profile.displayName) ||
-          getUserAvatar(profile.email) ||
-          (isValidDisplayAvatar(prev.userA.avatar) ? prev.userA.avatar : INITIAL_COUPLE.userA.avatar);
+          getUserAvatar('me');
+
+        const resolvedUserAAvatar: string =
+          ((savedMyAvatar && isValidDisplayAvatar(savedMyAvatar) && !savedMyAvatar.startsWith('/api/'))
+            ? savedMyAvatar
+            : (isValidDisplayAvatar(profile.avatarUrl) ? profile.avatarUrl : '') ||
+              getUserAvatar(profile.displayName) ||
+              getUserAvatar(profile.email) ||
+              (isValidDisplayAvatar(prev.userA.avatar) ? prev.userA.avatar : INITIAL_COUPLE.userA.avatar)) ||
+          INITIAL_COUPLE.userA.avatar;
 
         const coupleId = status.couple?.coupleId || (isPaired ? prev.coupleId : '');
         const savedDateByCouple = coupleId ? localStorage.getItem(`lovera_anniversary_date_${coupleId.toLowerCase()}`) : null;
@@ -775,7 +871,7 @@ export default function App() {
           userA: {
             ...prev.userA,
             id: profile.id,
-            name: profile.displayName || prev.userA.name,
+            name: (localStorage.getItem('lovera_my_nickname') || profile.displayName || prev.userA.name),
             email: profile.email || prev.userA.email,
             avatar: resolvedUserAAvatar,
           },
@@ -969,43 +1065,94 @@ export default function App() {
             setBackendMemories(prev => prev.map(m => m.id === id ? { ...m, likes } : m));
           }
           break;
+        case 'SYNC_NICKNAMES':
+          if (msg.payload) {
+            const { senderId, senderEmail, senderName, partnerName } = msg.payload;
+            const isMe =
+              (senderId && couple.userA.id && senderId.toLowerCase() === couple.userA.id.toLowerCase()) ||
+              (senderEmail && couple.userA.email && senderEmail.toLowerCase() === couple.userA.email.toLowerCase());
+
+            if (isMe) {
+              if (senderName) localStorage.setItem('lovera_my_nickname', senderName);
+              if (partnerName) localStorage.setItem('lovera_partner_nickname', partnerName);
+              setCouple(prev => {
+                const next = {
+                  ...prev,
+                  userA: { ...prev.userA, name: senderName || prev.userA.name },
+                  userB: { ...prev.userB, name: partnerName || prev.userB.name }
+                };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
+              });
+            } else {
+              if (senderName) {
+                localStorage.setItem('lovera_partner_nickname', senderName);
+                if (senderId) localStorage.setItem(`lovera_partner_name_${senderId.toLowerCase()}`, senderName);
+              }
+              if (partnerName) {
+                localStorage.setItem('lovera_my_nickname', partnerName);
+              }
+
+              setCouple(prev => {
+                const next = {
+                  ...prev,
+                  userA: { ...prev.userA, name: partnerName || prev.userA.name },
+                  userB: { ...prev.userB, name: senderName || prev.userB.name }
+                };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
+              });
+            }
+          }
+          break;
         case 'SYNC_AVATAR':
           if (msg.payload) {
-            const { userId, name, email, avatar } = msg.payload;
-            if (userId) saveUserAvatar(userId, avatar);
-            if (name) saveUserAvatar(name, avatar);
-            if (email) saveUserAvatar(email, avatar);
-            if (userId && name) saveKnownUser({ id: userId, name, email, avatar });
+            const { senderId, senderName, senderEmail, avatar, userId, name, email } = msg.payload;
+            const targetAvatar = avatar;
+            if (!targetAvatar || !isValidDisplayAvatar(targetAvatar) || targetAvatar.startsWith('/api/')) break;
 
-            setCouple(prev => {
-              const matchesB =
-                (userId && prev.userB.id && prev.userB.id.toLowerCase() === userId.toLowerCase()) ||
-                (name && prev.userB.name && prev.userB.name.toLowerCase() === name.toLowerCase()) ||
-                (email && prev.userB.email && prev.userB.email.toLowerCase() === email.toLowerCase());
+            const sid = (senderId || userId || '').toLowerCase();
+            const sname = (senderName || name || '').toLowerCase();
+            const semail = (senderEmail || email || '').toLowerCase();
 
-              const matchesA =
-                (userId && prev.userA.id && prev.userA.id.toLowerCase() === userId.toLowerCase()) ||
-                (name && prev.userA.name && prev.userA.name.toLowerCase() === name.toLowerCase()) ||
-                (email && prev.userA.email && prev.userA.email.toLowerCase() === email.toLowerCase());
+            const isMe =
+              (sid && couple.userA.id && sid === couple.userA.id.toLowerCase()) ||
+              (semail && couple.userA.email && semail === couple.userA.email.toLowerCase());
 
-              if (!matchesA && !matchesB) return prev;
+            if (isMe) {
+              localStorage.setItem('lovera_my_avatar', targetAvatar);
+              localStorage.setItem('lovera_alex_avatar', targetAvatar);
+              saveUserAvatar('me', targetAvatar);
+              if (sid) saveUserAvatar(sid, targetAvatar);
+              setCouple(prev => {
+                const next = { ...prev, userA: { ...prev.userA, avatar: targetAvatar } };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
+              });
+            } else {
+              localStorage.setItem('lovera_partner_avatar', targetAvatar);
+              saveUserAvatar('partner', targetAvatar);
+              if (sid) saveUserAvatar(sid, targetAvatar);
+              if (sname) saveUserAvatar(sname, targetAvatar);
 
-              const next = {
-                ...prev,
-                userA: matchesA ? { ...prev.userA, avatar } : prev.userA,
-                userB: matchesB ? { ...prev.userB, avatar } : prev.userB,
-              };
-              saveStoredData(STORAGE_KEYS.COUPLE, next);
-              return next;
-            });
+              setCouple(prev => {
+                const next = { ...prev, userB: { ...prev.userB, avatar: targetAvatar } };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
+              });
+            }
           }
           break;
         case 'SYNC_COUPLE':
           if (msg.payload) {
             setCouple(prev => {
-              const isPartner =
-                (msg.payload.userA?.id && prev.userB.id && msg.payload.userA.id.toLowerCase() === prev.userB.id.toLowerCase()) ||
-                (msg.payload.userA?.name && prev.userB.name && msg.payload.userA.name.toLowerCase() === prev.userB.name.toLowerCase());
+              const sid = msg.payload.userA?.id?.toLowerCase();
+              const semail = msg.payload.userA?.email?.toLowerCase();
+              const myId = prev.userA.id?.toLowerCase();
+              const myEmail = prev.userA.email?.toLowerCase();
+
+              const isMe = (sid && myId && sid === myId) || (semail && myEmail && semail === myEmail);
+              const isPartner = !isMe && Boolean(prev.isPaired || msg.payload.isPaired);
 
               const incomingDate = msg.payload.startDate;
               const safeStartDate = (incomingDate && incomingDate !== '2025-09-22') ? incomingDate : (prev.startDate && prev.startDate !== '2025-09-22' ? prev.startDate : '2025-09-07');
@@ -1028,14 +1175,38 @@ export default function App() {
               }
 
               if (isPartner) {
-                const next = {
+                const partnerNewName = msg.payload.userA.name || prev.userB.name;
+                const myNewNickname = msg.payload.userB.name || prev.userA.name;
+                const partnerNewAvatar = (isValidDisplayAvatar(msg.payload.userA.avatar) && !msg.payload.userA.avatar?.startsWith('/api/'))
+                  ? msg.payload.userA.avatar
+                  : prev.userB.avatar;
+
+                if (partnerNewName) {
+                  localStorage.setItem('lovera_partner_nickname', partnerNewName);
+                  if (msg.payload.userA.id) localStorage.setItem(`lovera_partner_name_${msg.payload.userA.id.toLowerCase()}`, partnerNewName);
+                }
+                if (myNewNickname) {
+                  localStorage.setItem('lovera_my_nickname', myNewNickname);
+                }
+                if (isValidDisplayAvatar(partnerNewAvatar)) {
+                  localStorage.setItem('lovera_partner_avatar', partnerNewAvatar);
+                }
+
+                const next: CoupleData = {
                   ...prev,
                   startDate: safeStartDate,
                   lovePoints: safePoints,
                   coupleId: msg.payload.coupleId || prev.coupleId,
+                  userA: {
+                    ...prev.userA,
+                    name: myNewNickname,
+                  },
                   userB: {
                     ...prev.userB,
-                    avatar: msg.payload.userA.avatar || prev.userB.avatar,
+                    id: msg.payload.userA.id || prev.userB.id,
+                    name: partnerNewName,
+                    email: msg.payload.userA.email || prev.userB.email,
+                    avatar: partnerNewAvatar,
                     status: msg.payload.userA.status || prev.userB.status,
                     activity: msg.payload.userA.activity ?? prev.userB.activity,
                     isOnline: msg.payload.userA.isOnline ?? prev.userB.isOnline,
@@ -1045,13 +1216,21 @@ export default function App() {
                 return next;
               }
 
-              if (msg.payload.userA?.id && prev.userA.id && msg.payload.userA.id.toLowerCase() === prev.userA.id.toLowerCase()) {
-                const next = { ...msg.payload, startDate: safeStartDate, lovePoints: safePoints };
+              if (isMe) {
+                const myAvatar = (isValidDisplayAvatar(msg.payload.userA?.avatar) && !msg.payload.userA?.avatar?.startsWith('/api/')) ? msg.payload.userA.avatar : prev.userA.avatar;
+                const partnerAvatar = (isValidDisplayAvatar(msg.payload.userB?.avatar) && !msg.payload.userB?.avatar?.startsWith('/api/')) ? msg.payload.userB.avatar : prev.userB.avatar;
+                const next = {
+                  ...prev,
+                  ...msg.payload,
+                  startDate: safeStartDate,
+                  lovePoints: safePoints,
+                  userA: { ...prev.userA, ...msg.payload.userA, avatar: myAvatar },
+                  userB: { ...prev.userB, ...msg.payload.userB, avatar: partnerAvatar },
+                };
                 saveStoredData(STORAGE_KEYS.COUPLE, next);
                 return next;
               }
 
-              // Cross-tab fallback for paired couple: ensure anniversary startDate and lovePoints are synchronized immediately
               if ((safeStartDate !== prev.startDate) || (safePoints !== prev.lovePoints)) {
                 const next = {
                   ...prev,
@@ -1733,49 +1912,74 @@ export default function App() {
   };
 
   const handleUpdateNicknames = (nameA: string, nameB: string) => {
-    setCouple(prev => {
-      const otherId = prev.userB.id;
-      if (otherId && otherId !== 'usr_partner') {
-        localStorage.setItem(`lovera_partner_name_${otherId.toLowerCase()}`, nameB);
-      }
-      if (prev.coupleId) {
-        localStorage.setItem(`lovera_partner_name_${prev.coupleId}`, nameB);
-      }
-      localStorage.setItem('lovera_partner_nickname', nameB);
+    const trimmedA = nameA.trim() || couple.userA.name;
+    const trimmedB = nameB.trim() || couple.userB.name;
 
+    localStorage.setItem('lovera_my_nickname', trimmedA);
+    localStorage.setItem('lovera_partner_nickname', trimmedB);
+
+    const otherId = couple.userB.id;
+    if (otherId && otherId !== 'usr_partner') {
+      localStorage.setItem(`lovera_partner_name_${otherId.toLowerCase()}`, trimmedB);
+    }
+    if (couple.coupleId) {
+      localStorage.setItem(`lovera_partner_name_${couple.coupleId}`, trimmedB);
+    }
+
+    setCouple(prev => {
       const next: CoupleData = {
         ...prev,
-        userA: { ...prev.userA, name: nameA },
-        userB: { ...prev.userB, name: nameB }
+        userA: { ...prev.userA, name: trimmedA },
+        userB: { ...prev.userB, name: trimmedB }
       };
       if (prev.userB.id) {
-        saveKnownUser({ id: prev.userB.id, name: nameB });
+        saveKnownUser({ id: prev.userB.id, name: trimmedB });
+      }
+      if (prev.userA.id) {
+        saveKnownUser({ id: prev.userA.id, name: trimmedA });
       }
       saveStoredData(STORAGE_KEYS.COUPLE, next);
-      broadcastMessage('SYNC_COUPLE', next);
 
-      // Auto-publish my own name to backend memory so partner receives it
-      if (getStoredToken() && prev.coupleId && nameA && nameA !== 'Alex') {
-        memoryService.createMemory(`[PROFILE_NAME]:${nameA}`).catch(() => {});
-      }
+      broadcastMessage('SYNC_NICKNAMES', {
+        senderId: prev.userA.id,
+        senderEmail: prev.userA.email,
+        senderName: trimmedA,
+        partnerName: trimmedB,
+      });
+      broadcastMessage('SYNC_COUPLE', next);
 
       return next;
     });
+
     if (getStoredToken()) {
-      authService.updateProfile({ displayName: nameA }).catch(err => {
+      authService.updateProfile({ displayName: trimmedA }).catch(err => {
         console.warn('[App] Real updateProfile error:', err);
       });
     }
+
+    // Auto-publish nickname memory to backend so partner on ANOTHER device receives it
+    if (getStoredToken() && couple.isPaired) {
+      const payload = JSON.stringify({
+        senderId: couple.userA.id,
+        senderName: trimmedA,
+        partnerName: trimmedB,
+        timestamp: Date.now()
+      });
+      memoryService.createMemory(`[NICKNAME_PAIR]:${payload}`).catch(() => {});
+      memoryService.createMemory(`[PROFILE_NAME]:${trimmedA}`).catch(() => {});
+      memoryService.createMemory(`[PARTNER_NAME]:${trimmedB}`).catch(() => {});
+    }
+
     setAdminUsers(prev => prev.map(u => {
-      if (u.id === 'usr_alex') return { ...u, name: nameA };
-      if (u.id === 'usr_sam') return { ...u, name: nameB };
+      if (u.id === 'usr_alex') return { ...u, name: trimmedA };
+      if (u.id === 'usr_sam') return { ...u, name: trimmedB };
       return u;
     }));
     setAdminLogs(prev => [
       {
         id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        action: `Cập nhật biệt danh cặp đôi: "${nameA}" & "${nameB}"`,
-        actor: nameA,
+        action: `Cập nhật biệt danh cặp đôi: "${trimmedA}" & "${trimmedB}"`,
+        actor: trimmedA,
         target: 'Profile',
         timestamp: 'Vừa xong',
         type: 'auth',
@@ -1792,17 +1996,16 @@ export default function App() {
     const myName = couple.userA.name;
     const myEmail = couple.userA.email;
 
-    if (myId) saveUserAvatar(myId, newAvatarUrl);
+    localStorage.setItem('lovera_my_avatar', newAvatarUrl);
+    localStorage.setItem('lovera_alex_avatar', newAvatarUrl);
+    if (myId) {
+      localStorage.setItem(`lovera_avatar_${myId.toLowerCase()}`, newAvatarUrl);
+      saveUserAvatar(myId, newAvatarUrl);
+    }
     if (myName) saveUserAvatar(myName, newAvatarUrl);
     if (myEmail) saveUserAvatar(myEmail, newAvatarUrl);
+    saveUserAvatar('me', newAvatarUrl);
     saveKnownUser({ id: myId, name: myName, email: myEmail, avatar: newAvatarUrl });
-
-    try {
-      localStorage.setItem('lovera_alex_avatar', newAvatarUrl);
-      if (myId) localStorage.setItem(`lovera_avatar_${myId.toLowerCase()}`, newAvatarUrl);
-    } catch (err) {
-      console.warn('Failed to save avatar to localStorage:', err);
-    }
 
     setCouple(prev => {
       const next = {
@@ -1810,14 +2013,16 @@ export default function App() {
         userA: { ...prev.userA, avatar: newAvatarUrl }
       };
       saveStoredData(STORAGE_KEYS.COUPLE, next);
-      return next;
-    });
 
-    broadcastMessage('SYNC_AVATAR', {
-      userId: myId,
-      name: myName,
-      email: myEmail,
-      avatar: newAvatarUrl
+      broadcastMessage('SYNC_AVATAR', {
+        senderId: myId,
+        senderName: myName,
+        senderEmail: myEmail,
+        avatar: newAvatarUrl
+      });
+      broadcastMessage('SYNC_COUPLE', next);
+
+      return next;
     });
 
     setAdminUsers(prev => prev.map(u => {

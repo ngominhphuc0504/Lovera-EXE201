@@ -31,6 +31,7 @@ export type SyncMessageType =
   | 'SYNC_GARDEN_METRICS'
   | 'SYNC_MEMORY_NOTIFICATION'
   | 'SYNC_AVATAR'
+  | 'SYNC_NICKNAMES'
   | 'REQUEST_SYNC'
   | 'SYNC_ALL';
 
