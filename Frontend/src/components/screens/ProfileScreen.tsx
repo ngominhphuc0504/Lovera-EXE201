@@ -9,7 +9,6 @@ import {
   Check, 
   HeartHandshake, 
   ShieldCheck,
-  RotateCcw,
   Sparkles,
   Edit2,
   ArrowLeft,
@@ -45,7 +44,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   onUpdateAvatar,
 }) => {
   const isPaired = couple.isPaired;
-  const { userA, userB, startDate, coupleId } = couple;
+  const { userA, userB, startDate } = couple;
   const totalDays = calculateTotalDays(startDate);
 
   const [nickA, setNickA] = useState(userA.name);
@@ -115,33 +114,35 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       />
 
       {/* Screen Header */}
-      <div className="mx-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <div className="mx-4 flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
           {!isPaired && onNavigateToPairing && (
             <button
               onClick={() => {
                 playSound('click');
                 onNavigateToPairing();
               }}
-              className="w-9 h-9 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors shadow-2xs active:scale-95"
+              className="w-9 h-9 shrink-0 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors shadow-2xs active:scale-95"
               title="Quay lại màn hình ghép đôi"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
-          <div>
-            <div className="flex items-center gap-1.5 text-xs font-bold text-rose-500 uppercase tracking-wide">
-              <User className="w-3.5 h-3.5" />
+          <User aria-hidden="true" className="w-5 h-5 shrink-0 text-rose-500" />
+          <div className="min-w-0 space-y-0.5">
+            <div className="whitespace-nowrap text-[10px] min-[375px]:text-[11px] font-bold leading-4 text-rose-500 uppercase tracking-wide">
               <span>Tài Khoản & Cài Đặt</span>
             </div>
-            <h2 className="text-base font-bold text-stone-900 font-serif-romantic">
+            <h2 className="text-base min-[375px]:text-lg font-bold leading-6 text-stone-900">
               {isPaired ? 'Không Gian Chung' : 'Hồ Sơ Cá Nhân'}
             </h2>
           </div>
         </div>
-        <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full border ${isPaired ? 'bg-stone-100 text-stone-600 border-stone-200' : 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'}`}>
-          {isPaired ? `Mã: ${coupleId}` : 'Chưa ghép đôi'}
-        </span>
+        {!isPaired && (
+          <span className="ml-auto text-[10px] px-2.5 py-1 rounded-full border bg-amber-50 text-amber-700 border-amber-200 font-semibold">
+            Chưa ghép đôi
+          </span>
+        )}
       </div>
 
       {/* Hero Summary Card: Conditionally render Paired vs Solo */}
@@ -432,42 +433,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </>
       )}
 
-      {/* ------------------------------------------------------------- */}
-      {/* TEST BENCH & DEMO FLOW SWITCHER                               */}
-      {/* ------------------------------------------------------------- */}
-      <div className="mx-4 bg-stone-50 rounded-3xl p-4 border border-stone-200 space-y-2.5">
-        <div className="flex items-center gap-1.5 text-xs font-bold text-stone-700">
-          <RotateCcw className="w-3.5 h-3.5 text-stone-500" />
-          <span>Kiểm Thử Toàn Bộ Luồng (Test Flows):</span>
-        </div>
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <button
-            onClick={() => onResetDemoFlow('welcome')}
-            className="p-2.5 bg-white hover:bg-rose-50 rounded-xl border border-stone-200 text-stone-700 font-medium text-left transition-colors shadow-2xs"
-          >
-            1. Welcome Screen
-          </button>
-          <button
-            onClick={() => onResetDemoFlow('register')}
-            className="p-2.5 bg-white hover:bg-rose-50 rounded-xl border border-stone-200 text-stone-700 font-medium text-left transition-colors shadow-2xs"
-          >
-            2. Đăng Ký (Register)
-          </button>
-          <button
-            onClick={() => onResetDemoFlow('login')}
-            className="p-2.5 bg-white hover:bg-rose-50 rounded-xl border border-stone-200 text-stone-700 font-medium text-left transition-colors shadow-2xs"
-          >
-            3. Đăng Nhập (Login)
-          </button>
-          <button
-            onClick={() => onResetDemoFlow('pairing')}
-            className="p-2.5 bg-white hover:bg-rose-50 rounded-xl border border-stone-200 text-stone-700 font-medium text-left transition-colors shadow-2xs"
-          >
-            4. Couple Pairing (5 bước)
-          </button>
-          
-        </div>
-      </div>
 
       {/* ------------------------------------------------------------- */}
       {/* UNPAIR & LOGOUT ACTIONS                                        */}

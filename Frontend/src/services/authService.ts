@@ -4,7 +4,8 @@ import {
   clearStoredToken, 
   setStoredUserProfile,
   BASE_API_URL,
-  getStoredToken
+  getStoredToken,
+  getSessionKey
 } from './apiClient';
 
 export interface RegisterRequest {
@@ -105,12 +106,13 @@ export const authService = {
    * POST /api/auth/logout
    */
   async logout(): Promise<void> {
+    const session = getSessionKey();
     try {
       await apiFetch<void>('/auth/logout', {
         method: 'POST',
       });
     } finally {
-      clearStoredToken();
+      if (session === getSessionKey()) clearStoredToken();
     }
   },
 
@@ -160,6 +162,7 @@ export const authService = {
    * GET /api/profile/me/avatar
    */
   async getMyAvatarBlob(): Promise<Blob | null> {
+    const session = getSessionKey();
     const token = getStoredToken();
     if (!token) return null;
     try {
@@ -171,6 +174,7 @@ export const authService = {
       });
       if (!response.ok) return null;
       const blob = await response.blob();
+      if (session !== getSessionKey()) return null;
       if (!blob.type.startsWith('image/')) return null;
       return blob;
     } catch {

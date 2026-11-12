@@ -1,4 +1,6 @@
-import { apiFetch } from './apiClient';
+import { apiFetch, getSessionKey } from './apiClient';
+
+const statusRequests = new Map<string, Promise<PairingStatusResponse>>();
 
 export interface PairingCodeResponse {
   code: string;
@@ -50,14 +52,20 @@ export const coupleService = {
    * Lấy thông tin & trạng thái ghép đôi hiện tại của người dùng
    * GET /api/couples/me
    */
-  async getStatus(): Promise<PairingStatusResponse> {
-    const res = await apiFetch<PairingStatusResponse>('/couples/me', {
+  getStatus(): Promise<PairingStatusResponse> {
+    const key = getSessionKey();
+    const existing = statusRequests.get(key);
+    if (existing) return existing;
+    const request = apiFetch<PairingStatusResponse>('/couples/me', {
       method: 'GET',
-    });
-    return {
+    }).then(res => ({
       ...res,
       isPaired: res.state === 'paired' || Boolean(res.couple?.isActive),
-    };
+    })).finally(() => {
+      if (statusRequests.get(key) === request) statusRequests.delete(key);
+    });
+    statusRequests.set(key, request);
+    return request;
   },
 
   /**
