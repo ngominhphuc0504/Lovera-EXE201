@@ -73,21 +73,21 @@ export default function App() {
     const savedDate = localStorage.getItem('lovera_anniversary_date');
     const savedPoints = localStorage.getItem('lovera_love_points');
 
-    let resolvedStartDate = stored.startDate || '2025-09-07';
-    if (savedDate) {
-      resolvedStartDate = savedDate;
-    } else if (stored.startDate === '2025-09-22') {
-      resolvedStartDate = '2025-09-07';
-    }
+    const sanitizeDate = (d?: string | null) => {
+      if (!d || d === '2025-09-22') return '2025-09-07';
+      return d;
+    };
+
+    const resolvedStartDate = sanitizeDate(savedDate || stored.startDate);
+    localStorage.setItem('lovera_anniversary_date', resolvedStartDate);
 
     let resolvedPoints = stored.lovePoints ?? 0;
-    // Reset legacy hardcoded 1500 mock points back to natural progressive 0
     if (savedPoints !== null) {
-      resolvedPoints = Math.max(0, parseInt(savedPoints, 10) || 0);
-    } else if (resolvedPoints >= 1000) {
-      resolvedPoints = 0;
-      localStorage.setItem('lovera_love_points', '0');
+      resolvedPoints = Math.max(resolvedPoints, parseInt(savedPoints, 10) || 0);
     }
+    // Restore user past 85 pts to Cấp 2 threshold (100 Pts) - Points never decrease
+    resolvedPoints = Math.max(resolvedPoints, 100);
+    localStorage.setItem('lovera_love_points', String(resolvedPoints));
 
     const next: CoupleData = {
       ...stored,
@@ -400,14 +400,15 @@ export default function App() {
       );
       if (startDateMem?.text) {
         const syncedStartDate = startDateMem.text.replace(/^\[(START_DATE|ANNIVERSARY_DATE)\]:/, '').trim();
-        if (syncedStartDate) {
-          localStorage.setItem('lovera_anniversary_date', syncedStartDate);
+        const safeStartDate = (!syncedStartDate || syncedStartDate === '2025-09-22') ? '2025-09-07' : syncedStartDate;
+        if (safeStartDate) {
+          localStorage.setItem('lovera_anniversary_date', safeStartDate);
           if (couple.coupleId) {
-            localStorage.setItem(`lovera_anniversary_date_${couple.coupleId.toLowerCase()}`, syncedStartDate);
+            localStorage.setItem(`lovera_anniversary_date_${couple.coupleId.toLowerCase()}`, safeStartDate);
           }
           setCouple(prev => {
-            if (prev.startDate === syncedStartDate) return prev;
-            const nextCouple = { ...prev, startDate: syncedStartDate };
+            if (prev.startDate === safeStartDate) return prev;
+            const nextCouple = { ...prev, startDate: safeStartDate };
             saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
             broadcastMessage('SYNC_COUPLE', nextCouple);
             return nextCouple;
@@ -426,13 +427,14 @@ export default function App() {
         const syncedPointsStr = gardenPointsMem.text.replace(/^\[(GARDEN_POINTS|LOVE_POINTS)\]:/, '').trim();
         const syncedPoints = parseInt(syncedPointsStr, 10);
         if (!isNaN(syncedPoints) && syncedPoints >= 0) {
-          localStorage.setItem('lovera_love_points', String(syncedPoints));
-          if (couple.coupleId) {
-            localStorage.setItem(`lovera_love_points_${couple.coupleId.toLowerCase()}`, String(syncedPoints));
-          }
           setCouple(prev => {
-            if (prev.lovePoints === syncedPoints) return prev;
-            const nextCouple = { ...prev, lovePoints: syncedPoints };
+            const finalPoints = Math.max(prev.lovePoints, syncedPoints, 100);
+            localStorage.setItem('lovera_love_points', String(finalPoints));
+            if (couple.coupleId) {
+              localStorage.setItem(`lovera_love_points_${couple.coupleId.toLowerCase()}`, String(finalPoints));
+            }
+            if (prev.lovePoints === finalPoints) return prev;
+            const nextCouple = { ...prev, lovePoints: finalPoints };
             saveStoredData(STORAGE_KEYS.COUPLE, nextCouple);
             broadcastMessage('SYNC_COUPLE', nextCouple);
             return nextCouple;
@@ -724,19 +726,25 @@ export default function App() {
         const savedDateByCouple = coupleId ? localStorage.getItem(`lovera_anniversary_date_${coupleId.toLowerCase()}`) : null;
         const savedDateGlobal = localStorage.getItem('lovera_anniversary_date');
 
-        const resolvedStartDate =
+        const sanitizeDate = (d?: string | null) => {
+          if (!d || d === '2025-09-22') return '2025-09-07';
+          return d;
+        };
+
+        const rawStartDate =
           loveDays?.startDate ||
           status.couple?.startDate ||
           savedDateByCouple ||
           savedDateGlobal ||
-          (prev.startDate && prev.startDate !== '2025-09-22' ? prev.startDate : '2025-09-07');
+          prev.startDate;
+        const resolvedStartDate = sanitizeDate(rawStartDate);
 
         if (resolvedStartDate) {
           localStorage.setItem('lovera_anniversary_date', resolvedStartDate);
           if (coupleId) {
             localStorage.setItem(`lovera_anniversary_date_${coupleId.toLowerCase()}`, resolvedStartDate);
           }
-          if (!loveDays?.startDate && !status.couple?.startDate && isPaired) {
+          if (isPaired) {
             coupleService.setLoveStartDate(resolvedStartDate).catch(() => {});
           }
         }
@@ -745,12 +753,13 @@ export default function App() {
         const savedPointsGlobal = localStorage.getItem('lovera_love_points');
         let resolvedLovePoints = prev.lovePoints ?? 0;
         if (savedPointsByCouple !== null) {
-          resolvedLovePoints = Math.max(0, parseInt(savedPointsByCouple, 10) || 0);
-        } else if (savedPointsGlobal !== null) {
-          resolvedLovePoints = Math.max(0, parseInt(savedPointsGlobal, 10) || 0);
-        } else if (resolvedLovePoints >= 1000) {
-          resolvedLovePoints = 0;
+          resolvedLovePoints = Math.max(resolvedLovePoints, parseInt(savedPointsByCouple, 10) || 0);
         }
+        if (savedPointsGlobal !== null) {
+          resolvedLovePoints = Math.max(resolvedLovePoints, parseInt(savedPointsGlobal, 10) || 0);
+        }
+        // Points never decrease, restore to at least 100
+        resolvedLovePoints = Math.max(resolvedLovePoints, 100);
 
         if (coupleId) {
           localStorage.setItem(`lovera_love_points_${coupleId.toLowerCase()}`, String(resolvedLovePoints));
@@ -777,18 +786,20 @@ export default function App() {
         return next;
       });
 
-      // Synchronize garden points from backend API if paired
+      // Synchronize garden points from backend API if paired - NEVER DECREASE POINTS
       if (isPaired) {
         gardenService.getGarden().then(gardenRes => {
           const remotePoints = (gardenRes as any)?.totalPoints ?? gardenRes?.points;
           if (typeof remotePoints === 'number' && remotePoints >= 0) {
-            localStorage.setItem('lovera_love_points', String(remotePoints));
-            if (status.couple?.coupleId) {
-              localStorage.setItem(`lovera_love_points_${status.couple.coupleId.toLowerCase()}`, String(remotePoints));
-            }
             setCouple(prev => {
-              if (prev.lovePoints === remotePoints) return prev;
-              const next = { ...prev, lovePoints: remotePoints };
+              // Crucial fix: ONLY increase points, NEVER decrease!
+              const finalPoints = Math.max(prev.lovePoints, remotePoints, 100);
+              localStorage.setItem('lovera_love_points', String(finalPoints));
+              if (status.couple?.coupleId) {
+                localStorage.setItem(`lovera_love_points_${status.couple.coupleId.toLowerCase()}`, String(finalPoints));
+              }
+              if (prev.lovePoints === finalPoints) return prev;
+              const next = { ...prev, lovePoints: finalPoints };
               saveStoredData(STORAGE_KEYS.COUPLE, next);
               broadcastMessage('SYNC_COUPLE', next);
               return next;
@@ -996,25 +1007,31 @@ export default function App() {
                 (msg.payload.userA?.id && prev.userB.id && msg.payload.userA.id.toLowerCase() === prev.userB.id.toLowerCase()) ||
                 (msg.payload.userA?.name && prev.userB.name && msg.payload.userA.name.toLowerCase() === prev.userB.name.toLowerCase());
 
-              if (msg.payload.startDate) {
-                localStorage.setItem('lovera_anniversary_date', msg.payload.startDate);
+              const incomingDate = msg.payload.startDate;
+              const safeStartDate = (incomingDate && incomingDate !== '2025-09-22') ? incomingDate : (prev.startDate && prev.startDate !== '2025-09-22' ? prev.startDate : '2025-09-07');
+
+              if (safeStartDate) {
+                localStorage.setItem('lovera_anniversary_date', safeStartDate);
                 if (prev.coupleId) {
-                  localStorage.setItem(`lovera_anniversary_date_${prev.coupleId.toLowerCase()}`, msg.payload.startDate);
+                  localStorage.setItem(`lovera_anniversary_date_${prev.coupleId.toLowerCase()}`, safeStartDate);
                 }
               }
 
-              if (typeof msg.payload.lovePoints === 'number') {
-                localStorage.setItem('lovera_love_points', String(msg.payload.lovePoints));
+              const payloadPoints = typeof msg.payload.lovePoints === 'number' ? msg.payload.lovePoints : undefined;
+              const safePoints = payloadPoints !== undefined ? Math.max(prev.lovePoints, payloadPoints) : prev.lovePoints;
+
+              if (payloadPoints !== undefined) {
+                localStorage.setItem('lovera_love_points', String(safePoints));
                 if (prev.coupleId) {
-                  localStorage.setItem(`lovera_love_points_${prev.coupleId.toLowerCase()}`, String(msg.payload.lovePoints));
+                  localStorage.setItem(`lovera_love_points_${prev.coupleId.toLowerCase()}`, String(safePoints));
                 }
               }
 
               if (isPartner) {
                 const next = {
                   ...prev,
-                  startDate: msg.payload.startDate || prev.startDate,
-                  lovePoints: typeof msg.payload.lovePoints === 'number' ? msg.payload.lovePoints : prev.lovePoints,
+                  startDate: safeStartDate,
+                  lovePoints: safePoints,
                   coupleId: msg.payload.coupleId || prev.coupleId,
                   userB: {
                     ...prev.userB,
@@ -1029,15 +1046,17 @@ export default function App() {
               }
 
               if (msg.payload.userA?.id && prev.userA.id && msg.payload.userA.id.toLowerCase() === prev.userA.id.toLowerCase()) {
-                return msg.payload;
+                const next = { ...msg.payload, startDate: safeStartDate, lovePoints: safePoints };
+                saveStoredData(STORAGE_KEYS.COUPLE, next);
+                return next;
               }
 
               // Cross-tab fallback for paired couple: ensure anniversary startDate and lovePoints are synchronized immediately
-              if ((msg.payload.startDate && msg.payload.startDate !== prev.startDate) || (typeof msg.payload.lovePoints === 'number' && msg.payload.lovePoints !== prev.lovePoints)) {
+              if ((safeStartDate !== prev.startDate) || (safePoints !== prev.lovePoints)) {
                 const next = {
                   ...prev,
-                  startDate: msg.payload.startDate || prev.startDate,
-                  lovePoints: typeof msg.payload.lovePoints === 'number' ? msg.payload.lovePoints : prev.lovePoints,
+                  startDate: safeStartDate,
+                  lovePoints: safePoints,
                 };
                 saveStoredData(STORAGE_KEYS.COUPLE, next);
                 return next;

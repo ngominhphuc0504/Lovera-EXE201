@@ -135,15 +135,35 @@ export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
             <stop offset="100%" stopColor="#1B0E09" />
           </linearGradient>
 
-          {/* Leaf Gradients - Standard Green (Summer / General) */}
+          {/* Leaf Gradients - Dynamically synchronized with season */}
           <linearGradient id="leafSummer1" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#4ADE80" />
-            <stop offset="100%" stopColor="#15803D" />
+            <stop offset="0%" stopColor={
+              season === 'spring' ? '#FBCFE8' :
+              season === 'autumn' ? '#FDE047' :
+              season === 'winter' ? '#E0F2FE' : '#4ADE80'
+            } />
+            <stop offset="100%" stopColor={
+              season === 'spring' ? '#DB2777' :
+              season === 'autumn' ? '#C2410C' :
+              season === 'winter' ? '#0F766E' : '#15803D'
+            } />
           </linearGradient>
           <linearGradient id="leafSummer2" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#86EFAC" />
-            <stop offset="50%" stopColor="#22C55E" />
-            <stop offset="100%" stopColor="#166534" />
+            <stop offset="0%" stopColor={
+              season === 'spring' ? '#FCE7F3' :
+              season === 'autumn' ? '#FEF08A' :
+              season === 'winter' ? '#FFFFFF' : '#86EFAC'
+            } />
+            <stop offset="50%" stopColor={
+              season === 'spring' ? '#F472B6' :
+              season === 'autumn' ? '#FB923C' :
+              season === 'winter' ? '#38BDF8' : '#22C55E'
+            } />
+            <stop offset="100%" stopColor={
+              season === 'spring' ? '#BE185D' :
+              season === 'autumn' ? '#991B1B' :
+              season === 'winter' ? '#115E59' : '#166534'
+            } />
           </linearGradient>
 
           {/* Spring Sakura Gradients */}
@@ -415,7 +435,21 @@ export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
 
             {/* Tree Canopy - Multi-layered Domes */}
             {/* Layer 1 (Back shadow) */}
-            <ellipse cx="170" cy="115" rx="72" ry="50" fill="#14532D" />
+            <ellipse
+              cx="170"
+              cy="115"
+              rx={72}
+              ry={50}
+              fill={
+                season === 'spring'
+                  ? '#9D174D'
+                  : season === 'autumn'
+                  ? '#7C2D12'
+                  : season === 'winter'
+                  ? '#064E3B'
+                  : '#14532D'
+              }
+            />
             
             {/* Layer 2 (Mid Foliage) */}
             <circle cx="125" cy="118" r="36" fill="url(#leafSummer2)" />

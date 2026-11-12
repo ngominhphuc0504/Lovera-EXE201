@@ -117,22 +117,16 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
-  // Protected preview stage: CANNOT exceed realStage (locked stages are grayed out until reached)
-  const effectivePreviewStage: GardenStage = previewStage > realStage ? realStage : previewStage;
+  // User can freely explore and admire all 5 stages (Cấp 1 - Cấp 5)
+  const effectivePreviewStage: GardenStage = previewStage;
 
-  const getStageStatus = (stage: GardenStage, currentStage: GardenStage): 'COMPLETED' | 'CURRENT' | 'LOCKED' => {
+  const getStageStatus = (stage: GardenStage, currentStage: GardenStage): 'COMPLETED' | 'CURRENT' | 'UPCOMING' => {
     if (stage < currentStage) return 'COMPLETED';
     if (stage === currentStage) return 'CURRENT';
-    return 'LOCKED';
+    return 'UPCOMING';
   };
 
   const handleSelectStage = (stg: GardenStage) => {
-    const status = getStageStatus(stg, realStage);
-    if (status === 'LOCKED') {
-      playSound('error');
-      setToastMessage(`Cấp ${stg} đang khóa 🔒. Hãy cùng người thương chăm sóc cây để mở khóa nhé!`);
-      return;
-    }
     playSound('click');
     setPreviewStage(stg);
   };
@@ -521,7 +515,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           <div className="mb-2 p-2 bg-amber-50/90 backdrop-blur-md border border-amber-200 text-amber-800 text-xs rounded-2xl flex items-center justify-between shadow-2xs animate-fade-in z-20 relative">
             <div className="flex items-center gap-1.5">
               <RotateCcw className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span>Đang xem lại <strong>Cấp {effectivePreviewStage} (Đã hoàn thành)</strong>. Không thể chăm sóc ở cấp cũ.</span>
+              <span>Đang xem lại <strong>Cấp {effectivePreviewStage} (Đã hoàn thành)</strong>.</span>
             </div>
             <button
               onClick={() => {
@@ -529,6 +523,25 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                 setPreviewStage(realStage);
               }}
               className="px-2 py-0.5 bg-amber-600 text-white text-[10px] font-bold rounded-xl hover:bg-amber-700 active:scale-95 shrink-0 ml-1.5 cursor-pointer shadow-2xs"
+            >
+              Về Cấp {realStage} 🌱
+            </button>
+          </div>
+        )}
+
+        {/* Future Stage Preview Banner */}
+        {effectivePreviewStage > realStage && (
+          <div className="mb-2 p-2 bg-gradient-to-r from-purple-50/90 to-pink-50/90 backdrop-blur-md border border-purple-200 text-purple-900 text-xs rounded-2xl flex items-center justify-between shadow-2xs animate-fade-in z-20 relative">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-purple-600 shrink-0" />
+              <span>Đang chiêm ngưỡng <strong>Cấp {effectivePreviewStage}: {STAGE_DETAILS.title.replace(/^Cấp \d+:\s*/, '')}</strong> ✨</span>
+            </div>
+            <button
+              onClick={() => {
+                playSound('click');
+                setPreviewStage(realStage);
+              }}
+              className="px-2 py-0.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white text-[10px] font-bold rounded-xl hover:opacity-95 active:scale-95 shrink-0 ml-1.5 cursor-pointer shadow-2xs"
             >
               Về Cấp {realStage} 🌱
             </button>
@@ -559,7 +572,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           </div>
         )}
 
-        {/* Stage Timeline Selector: 5 Stages with 3 States (COMPLETED / CURRENT / LOCKED) */}
+        {/* Stage Timeline Selector: 5 Stages with 3 States (COMPLETED / CURRENT / UPCOMING) */}
         <div className="grid grid-cols-5 gap-1 p-1 bg-white/85 backdrop-blur-md rounded-2xl border border-white/80 mb-3 shadow-2xs z-10 relative">
           {([1, 2, 3, 4, 5] as GardenStage[]).map((stg) => {
             const status = getStageStatus(stg, realStage);
@@ -577,26 +590,23 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
               <button
                 key={stg}
                 onClick={() => handleSelectStage(stg)}
-                title={status === 'LOCKED' ? `Cấp ${stg} đang khóa 🔒. Hãy cùng người thương chăm sóc cây để mở khóa nhé!` : `Xem cây Cấp ${stg}`}
-                className={`py-1.5 px-0.5 rounded-xl text-[10px] font-bold transition-all flex flex-col items-center justify-center select-none ${
-                  status === 'LOCKED'
-                    ? 'bg-stone-100/90 text-stone-400 border border-stone-200/90 cursor-not-allowed opacity-60 grayscale hover:bg-stone-100/90'
+                title={status === 'UPCOMING' ? `Xem cây Cấp ${stg} (Sắp mở)` : `Xem cây Cấp ${stg}`}
+                className={`py-1.5 px-0.5 rounded-xl text-[10px] font-bold transition-all flex flex-col items-center justify-center select-none cursor-pointer ${
+                  isSelected
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs ring-2 ring-emerald-400 scale-102'
                     : status === 'CURRENT'
-                    ? isSelected
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs ring-2 ring-emerald-400 scale-102 cursor-pointer'
-                      : 'bg-emerald-50 text-emerald-800 border border-emerald-300 font-extrabold cursor-pointer'
-                    : isSelected
-                    ? 'bg-emerald-600 text-white shadow-xs scale-102 cursor-pointer'
-                    : 'bg-emerald-50/70 text-emerald-700 hover:bg-emerald-100/80 border border-emerald-200/60 cursor-pointer'
+                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-extrabold hover:bg-emerald-200/80'
+                    : status === 'COMPLETED'
+                    ? 'bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100/90 border border-emerald-200/60'
+                    : 'bg-white/90 text-stone-600 hover:text-stone-900 hover:bg-emerald-50/70 border border-stone-200/80'
                 }`}
               >
                 <div className="flex items-center gap-0.5 truncate">
-                  {status === 'LOCKED' && <Lock className="w-2.5 h-2.5 text-stone-400 shrink-0" />}
                   <span className="truncate">{labels}</span>
                 </div>
 
                 {status === 'COMPLETED' && (
-                  <span className="text-[8px] text-emerald-600 font-extrabold mt-0.5 flex items-center gap-0.5">
+                  <span className={`text-[8px] font-extrabold mt-0.5 flex items-center gap-0.5 ${isSelected ? 'text-emerald-100' : 'text-emerald-600'}`}>
                     Đã đạt ✓
                   </span>
                 )}
@@ -605,9 +615,9 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                     Đang chăm 🌱
                   </span>
                 )}
-                {status === 'LOCKED' && (
-                  <span className="text-[7.5px] text-stone-400 mt-0.5 font-medium flex items-center gap-0.5">
-                    Chưa mở 🔒
+                {status === 'UPCOMING' && (
+                  <span className={`text-[8px] font-semibold mt-0.5 ${isSelected ? 'text-emerald-100' : 'text-stone-500'}`}>
+                    Mở xem ✨
                   </span>
                 )}
               </button>
@@ -733,16 +743,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           {(() => {
             const isFull = metrics.moisture >= 100;
             const inCooldown = waterCooldown > 0;
-            const isOldStage = effectivePreviewStage !== realStage;
-            const isDisabled = isWatering || isFull || inCooldown || isOldStage;
+            const isDisabled = isWatering || isFull || inCooldown;
 
             return (
               <button
                 onClick={() => {
-                  if (isOldStage) {
-                    playSound('error');
-                    setToastMessage(`Hãy chuyển về Cấp ${realStage} để chăm sóc cây!`);
-                    return;
+                  if (effectivePreviewStage !== realStage) {
+                    setPreviewStage(realStage);
                   }
                   if (isFull) {
                     playSound('error');
@@ -773,17 +780,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                   Tưới Cây
                 </strong>
                 <span className={`inline-block text-[10px] font-extrabold px-2 py-0.2 rounded-full border ${
-                  isOldStage
-                    ? 'text-stone-400 bg-stone-100 border-stone-200'
-                    : isFull
+                  isFull
                     ? 'text-amber-700 bg-amber-50 border-amber-200'
                     : inCooldown
                     ? 'text-sky-600 bg-sky-50 border-sky-200 font-mono'
                     : 'text-sky-700 bg-white border-sky-200'
                 }`}>
-                  {isOldStage
-                    ? 'Cấp cũ'
-                    : isFull
+                  {isFull
                     ? 'Đầy 100%'
                     : inCooldown
                     ? formatCooldownTime(waterCooldown)
@@ -797,16 +800,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           {(() => {
             const isFull = metrics.freshness >= 100;
             const inCooldown = fertilizeCooldown > 0;
-            const isOldStage = effectivePreviewStage !== realStage;
-            const isDisabled = isFertilizing || isFull || inCooldown || isOldStage;
+            const isDisabled = isFertilizing || isFull || inCooldown;
 
             return (
               <button
                 onClick={() => {
-                  if (isOldStage) {
-                    playSound('error');
-                    setToastMessage(`Hãy chuyển về Cấp ${realStage} để chăm sóc cây!`);
-                    return;
+                  if (effectivePreviewStage !== realStage) {
+                    setPreviewStage(realStage);
                   }
                   if (isFull) {
                     playSound('error');
@@ -837,17 +837,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                   Bón Phân
                 </strong>
                 <span className={`inline-block text-[10px] font-extrabold px-2 py-0.2 rounded-full border ${
-                  isOldStage
-                    ? 'text-stone-400 bg-stone-100 border-stone-200'
-                    : isFull
+                  isFull
                     ? 'text-amber-700 bg-amber-50 border-amber-200'
                     : inCooldown
                     ? 'text-emerald-600 bg-emerald-50 border-emerald-200 font-mono'
                     : 'text-emerald-700 bg-white border-emerald-200'
                 }`}>
-                  {isOldStage
-                    ? 'Cấp cũ'
-                    : isFull
+                  {isFull
                     ? 'Đầy 100%'
                     : inCooldown
                     ? formatCooldownTime(fertilizeCooldown)
@@ -861,16 +857,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           {(() => {
             const isFull = metrics.sunlight >= 100;
             const inCooldown = sunCooldown > 0;
-            const isOldStage = effectivePreviewStage !== realStage;
-            const isDisabled = isSunbathing || isFull || inCooldown || isOldStage;
+            const isDisabled = isSunbathing || isFull || inCooldown;
 
             return (
               <button
                 onClick={() => {
-                  if (isOldStage) {
-                    playSound('error');
-                    setToastMessage(`Hãy chuyển về Cấp ${realStage} để chăm sóc cây!`);
-                    return;
+                  if (effectivePreviewStage !== realStage) {
+                    setPreviewStage(realStage);
                   }
                   if (isFull) {
                     playSound('error');
@@ -901,17 +894,13 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                   Tắm Nắng
                 </strong>
                 <span className={`inline-block text-[10px] font-extrabold px-2 py-0.2 rounded-full border ${
-                  isOldStage
-                    ? 'text-stone-400 bg-stone-100 border-stone-200'
-                    : isFull
+                  isFull
                     ? 'text-amber-700 bg-amber-50 border-amber-200'
                     : inCooldown
                     ? 'text-amber-600 bg-amber-50 border-amber-200 font-mono'
                     : 'text-amber-700 bg-white border-amber-200'
                 }`}>
-                  {isOldStage
-                    ? 'Cấp cũ'
-                    : isFull
+                  {isFull
                     ? 'Đầy 100%'
                     : inCooldown
                     ? formatCooldownTime(sunCooldown)
