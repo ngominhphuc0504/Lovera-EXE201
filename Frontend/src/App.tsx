@@ -287,15 +287,13 @@ export default function App() {
     const savedLike = likesMap[item.id];
 
     const safeLikedBy = Array.isArray(savedLike?.likedBy) ? savedLike.likedBy : [];
-    const isLikedByMe = Boolean(
-      (remoteLikeInfo && remoteLikeInfo.myLikeItemIds.length > 0) ||
-      savedLike?.isLiked ||
-      safeLikedBy.some(u => isUserMatch(u, myId, myName, myEmail))
-    );
+    const isLikedByMe = safeLikedBy.length > 0
+      ? safeLikedBy.some(u => isUserMatch(u, myId, myName, myEmail))
+      : Boolean((remoteLikeInfo && remoteLikeInfo.myLikeItemIds.length > 0) || savedLike?.isLiked);
 
-    const likes = remoteLikeInfo
-      ? Math.max(remoteLikeInfo.likerUserIds.size, typeof savedLike?.likes === 'number' ? savedLike.likes : safeLikedBy.length)
-      : (typeof savedLike?.likes === 'number' ? savedLike.likes : safeLikedBy.length);
+    const likes = typeof savedLike?.likes === 'number'
+      ? savedLike.likes
+      : (safeLikedBy.length > 0 ? safeLikedBy.length : (remoteLikeInfo ? remoteLikeInfo.likerUserIds.size : 0));
 
     return {
       id: item.id,

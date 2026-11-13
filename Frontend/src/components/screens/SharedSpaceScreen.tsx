@@ -479,32 +479,22 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                   {mem.tag}
                 </span>
 
-                {/* Like Button on Image */}
-                {(() => {
-                  const hasLikes = Boolean(mem.isLiked || (typeof mem.likes === 'number' && mem.likes > 0));
-                  const likeTooltip = (Array.isArray(mem.likedBy) && mem.likedBy.length > 0)
-                    ? `${mem.likedBy.join(' & ')} đã thả tim`
-                    : (mem.isLiked ? 'Bạn đã thả tim' : (mem.likes > 0 ? `${mem.likes} người đã thả tim` : 'Thả tim ảnh này'));
-
-                  return (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        playSound('ping');
-                        onLikeMemory(mem.id);
-                      }}
-                      className={`absolute top-2 right-2 ${mem.likes > 1 ? 'px-2' : 'w-7'} h-7 rounded-full flex items-center justify-center gap-1 backdrop-blur-md transition-all active:scale-90 ${
-                        hasLikes ? 'bg-rose-500 text-white shadow-xs' : 'bg-black/30 hover:bg-black/40 text-white'
-                      }`}
-                      title={likeTooltip}
-                    >
-                      <Heart className={`w-3.5 h-3.5 ${hasLikes ? 'fill-white' : ''}`} />
-                      {mem.likes > 1 && (
-                        <span className="text-[10px] font-bold leading-none">{mem.likes}</span>
-                      )}
-                    </button>
-                  );
-                })()}
+                {/* Like Button on Image - CỦA AI NGƯỜI NẤY TIM */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    playSound('ping');
+                    onLikeMemory(mem.id);
+                  }}
+                  className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90 ${
+                    mem.isLiked
+                      ? 'bg-rose-500 text-white shadow-xs'
+                      : 'bg-black/30 hover:bg-black/40 text-white'
+                  }`}
+                  title={mem.isLiked ? 'Bỏ yêu thích' : 'Yêu thích ảnh này'}
+                >
+                  <Heart className={`w-3.5 h-3.5 ${mem.isLiked ? 'fill-white' : ''}`} />
+                </button>
 
                 {/* Date Tag */}
                 <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/40 text-white text-[9px] font-medium backdrop-blur-xs">
@@ -531,7 +521,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                     className="flex items-center gap-0.5 text-rose-500 font-semibold shrink-0"
                     title={(Array.isArray(mem.likedBy) && mem.likedBy.length > 0) ? `${mem.likedBy.join(' & ')} đã thả tim` : undefined}
                   >
-                    <Heart className={`w-2.5 h-2.5 ${(mem.isLiked || (typeof mem.likes === 'number' && mem.likes > 0)) ? 'fill-rose-500' : 'text-rose-400'}`} />
+                    <Heart className={`w-2.5 h-2.5 ${(mem.likes && mem.likes > 0) ? 'fill-rose-500' : 'text-stone-400'}`} />
                     <span>{mem.likes || 0}</span>
                   </span>
                 </div>
@@ -608,29 +598,24 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
 
                 {/* Actions bottom bar */}
                 <div className="flex items-center justify-between pt-2 border-t border-stone-100 text-xs">
-                  {(() => {
-                    const hasLikes = Boolean(mem.isLiked || (typeof mem.likes === 'number' && mem.likes > 0));
-                    const likeTooltip = (Array.isArray(mem.likedBy) && mem.likedBy.length > 0)
-                      ? `${mem.likedBy.join(' & ')} đã thả tim`
-                      : (mem.isLiked ? 'Bạn đã thả tim' : (mem.likes > 0 ? `${mem.likes} người đã thả tim` : 'Thả tim ảnh này'));
-
-                    return (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          playSound('ping');
-                          onLikeMemory(mem.id);
-                        }}
-                        className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold transition-colors ${
-                          hasLikes ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-stone-50 text-stone-600 hover:bg-stone-100'
-                        }`}
-                        title={likeTooltip}
-                      >
-                        <Heart className={`w-3.5 h-3.5 ${hasLikes ? 'fill-rose-500 text-rose-500' : 'text-stone-400'}`} />
-                        <span>{mem.likes || 0} Yêu thích</span>
-                      </button>
-                    );
-                  })()}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      playSound('ping');
+                      onLikeMemory(mem.id);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold transition-colors ${
+                      mem.isLiked ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-stone-50 text-stone-600 hover:bg-stone-100'
+                    }`}
+                    title={
+                      Array.isArray(mem.likedBy) && mem.likedBy.length > 0
+                        ? `${mem.likedBy.join(' & ')} đã thả tim`
+                        : (mem.isLiked ? 'Bỏ yêu thích' : 'Yêu thích')
+                    }
+                  >
+                    <Heart className={`w-3.5 h-3.5 ${mem.isLiked ? 'fill-rose-500 text-rose-500' : 'text-stone-400'}`} />
+                    <span>{mem.likes || 0} Yêu thích</span>
+                  </button>
 
                   <div className="flex items-center gap-1">
                     {!isBackendMode && (
@@ -853,38 +838,33 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                   </div>
                 </div>
 
-                {(() => {
-                  const modalHasLikes = Boolean(selectedMemory.isLiked || (typeof selectedMemory.likes === 'number' && selectedMemory.likes > 0));
-                  const likeTooltip = (Array.isArray(selectedMemory.likedBy) && selectedMemory.likedBy.length > 0)
-                    ? `${selectedMemory.likedBy.join(' & ')} đã thả tim`
-                    : (selectedMemory.isLiked ? 'Bạn đã thả tim' : (selectedMemory.likes > 0 ? `${selectedMemory.likes} người đã thả tim` : 'Thả tim ảnh này'));
-
-                  return (
-                    <button
-                      onClick={() => {
-                        playSound('ping');
-                        onLikeMemory(selectedMemory.id);
-                        setSelectedMemory(prev => {
-                          if (!prev) return null;
-                          const nextLiked = !prev.isLiked;
-                          const nextLikes = nextLiked ? prev.likes + 1 : Math.max(0, prev.likes - 1);
-                          return {
-                            ...prev,
-                            likes: nextLikes,
-                            isLiked: nextLiked,
-                          };
-                        });
-                      }}
-                      className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-transform active:scale-95 cursor-pointer ${
-                        modalHasLikes ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-stone-100 text-stone-600 hover:bg-rose-50'
-                      }`}
-                      title={likeTooltip}
-                    >
-                      <Heart className={`w-3.5 h-3.5 ${modalHasLikes ? 'fill-rose-500 text-rose-500' : 'text-stone-400'}`} />
-                      <span>{selectedMemory.likes || 0} Yêu thích</span>
-                    </button>
-                  );
-                })()}
+                <button
+                  onClick={() => {
+                    playSound('ping');
+                    onLikeMemory(selectedMemory.id);
+                    setSelectedMemory(prev => {
+                      if (!prev) return null;
+                      const nextLiked = !prev.isLiked;
+                      const nextLikes = nextLiked ? prev.likes + 1 : Math.max(0, prev.likes - 1);
+                      return {
+                        ...prev,
+                        likes: nextLikes,
+                        isLiked: nextLiked,
+                      };
+                    });
+                  }}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-transform active:scale-95 cursor-pointer ${
+                    selectedMemory.isLiked ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-stone-100 text-stone-600 hover:bg-rose-50'
+                  }`}
+                  title={
+                    Array.isArray(selectedMemory.likedBy) && selectedMemory.likedBy.length > 0
+                      ? `${selectedMemory.likedBy.join(' & ')} đã thả tim`
+                      : (selectedMemory.isLiked ? 'Bỏ yêu thích' : 'Yêu thích')
+                  }
+                >
+                  <Heart className={`w-3.5 h-3.5 ${selectedMemory.isLiked ? 'fill-rose-500 text-rose-500' : 'text-stone-400'}`} />
+                  <span>{selectedMemory.likes || 0} Yêu thích</span>
+                </button>
               </div>
 
               {/* Caption */}
