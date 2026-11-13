@@ -33,18 +33,18 @@ import {
   isGeminiConfigured
 } from '../../services/geminiService';
 import { aiChatService, AiDateSuggestion } from '../../services/aiChatService';
-import { getStoredToken } from '../../services/apiClient';
+import { getStoredToken, getStoredUserProfile } from '../../services/apiClient';
 
 interface ChatbotScreenProps {
   couple: CoupleData;
   onEarnPoints?: (amount: number, reason: string) => void;
 }
 
-const INITIAL_MESSAGES: ChatMessage[] = [
+const getInitialMessages = (userName?: string): ChatMessage[] => [
   {
     id: 'msg_welcome',
     sender: 'bot',
-    text: `Chào bạn! Mình là Lovera AI — trợ lý tình yêu thông minh của hai bạn ✨\n\nBạn cần mình gợi ý ý tưởng hẹn hò ngọt ngào, tìm quà tặng bất ngờ, bí quyết làm lành khi dỗi nhau, hay gợi ý món ăn hôm nay? Cứ thoải mái chia sẻ với mình nhé!`,
+    text: `Chào ${userName || 'bạn'}! Mình là Lovera AI — trợ lý tình yêu riêng tư của bạn ✨\n\n🔒 **Không gian tư vấn riêng tư 1:1:** Cuộc trò chuyện này hoàn toàn bí mật giữa bạn và AI. Đối phương sẽ không thể nhìn thấy những câu hỏi, tâm sự hay các kế hoạch bất ngờ mà bạn hỏi ở đây.\n\nBạn cần mình gợi ý ý tưởng hẹn hò ngọt ngào, chuẩn bị quà tặng bất ngờ, bí quyết làm lành khi dỗi nhau, hay gợi ý món ăn hôm nay? Cứ thoải mái chia sẻ với mình nhé!`,
     timestamp: 'Vừa xong',
     suggestions: [
       '💡 Ý tưởng hẹn hò cuối tuần',
@@ -69,19 +69,30 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   couple,
   onEarnPoints,
 }) => {
+  const storedProfile = getStoredUserProfile<{ id?: string; email?: string; displayName?: string }>();
+  const currentUserId = (
+    couple.userA.id ||
+    storedProfile?.id ||
+    couple.userA.email ||
+    couple.userA.name ||
+    'user_default'
+  ).toLowerCase().trim();
+
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     try {
-      const saved = localStorage.getItem('lovera_chat_history');
+      localStorage.removeItem('lovera_chat_history');
+      localStorage.removeItem('lovera_active_ai_conv_id');
+      const saved = localStorage.getItem(`lovera_chat_history_${currentUserId}`);
       if (saved) return JSON.parse(saved);
     } catch {
       // Fallback to default
     }
-    return INITIAL_MESSAGES;
+    return getInitialMessages(couple.userA.name);
   });
 
   const [conversationId, setConversationId] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('lovera_active_ai_conv_id');
+      return localStorage.getItem(`lovera_active_ai_conv_id_${currentUserId}`);
     } catch {
       return null;
     }
@@ -99,6 +110,22 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Khi chuyển tài khoản hoặc đối tác, nạp đúng lịch sử chat riêng tư của user đó
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`lovera_chat_history_${currentUserId}`);
+      if (saved) {
+        setMessages(JSON.parse(saved));
+      } else {
+        setMessages(getInitialMessages(couple.userA.name));
+      }
+      const savedConv = localStorage.getItem(`lovera_active_ai_conv_id_${currentUserId}`);
+      setConversationId(savedConv || null);
+    } catch {
+      setMessages(getInitialMessages(couple.userA.name));
+    }
+  }, [currentUserId, couple.userA.name]);
+
   // Synchronize conversation and message history with Lovera Backend AI
   useEffect(() => {
     let isMounted = true;
@@ -111,21 +138,28 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       }
 
       try {
-        const convList = await aiChatService.listConversations(10);
+        const convList = await aiChatService.listConversations(20);
         if (!isMounted) return;
 
-        const activeConv = convList.find(c => !c.archivedAtUtc) || convList[0];
+        // BẢO MẬT RIÊNG TƯ: Chỉ chọn cuộc trò chuyện do chính User này tạo ra
+        const myConversations = convList.filter(c => {
+          if (!c.createdByUserId) return false;
+          const creator = c.createdByUserId.toLowerCase();
+          return creator === currentUserId || (storedProfile?.id && creator === storedProfile.id.toLowerCase());
+        });
+
+        const activeConv = myConversations.find(c => !c.archivedAtUtc) || myConversations[0];
         let currentConvId = activeConv?.id;
 
         if (!currentConvId) {
-          const newConv = await aiChatService.createConversation('Tư vấn hẹn hò');
+          const newConv = await aiChatService.createConversation(`Tư vấn riêng tư - ${couple.userA.name || 'Tôi'}`);
           if (!isMounted) return;
           currentConvId = newConv.id;
         }
 
         setConversationId(currentConvId);
         try {
-          localStorage.setItem('lovera_active_ai_conv_id', currentConvId);
+          localStorage.setItem(`lovera_active_ai_conv_id_${currentUserId}`, currentConvId);
         } catch {
           // Ignore storage quota
         }
@@ -159,6 +193,9 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
             };
           });
           setMessages(mapped);
+          try {
+            localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(mapped));
+          } catch {}
         }
       } catch (err) {
         console.warn('[ChatbotScreen] Backend AI offline or unauthenticated, fallback to Gemini mode:', err);
@@ -171,7 +208,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [currentUserId, couple.userA.id, couple.userA.name]);
 
   // Auto-hide Gamification Banner after 5 seconds
   useEffect(() => {
@@ -183,13 +220,14 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   }, [showBanner]);
 
   useEffect(() => {
+    if (!currentUserId) return;
     try {
-      localStorage.setItem('lovera_chat_history', JSON.stringify(messages));
+      localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(messages));
     } catch {
       // Ignore storage errors
     }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+  }, [messages, isTyping, currentUserId]);
 
   // Intelligent Response Generator based on romantic couple domain
   const generateBotReply = (userQuery: string): { text: string; suggestions: string[] } => {
@@ -344,11 +382,11 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       try {
         let activeConvId = conversationId;
         if (!activeConvId) {
-          const newConv = await aiChatService.createConversation('Tư vấn hẹn hò');
+          const newConv = await aiChatService.createConversation(`Tư vấn riêng tư - ${couple.userA.name || 'Tôi'}`);
           activeConvId = newConv.id;
           setConversationId(activeConvId);
           try {
-            localStorage.setItem('lovera_active_ai_conv_id', activeConvId);
+            localStorage.setItem(`lovera_active_ai_conv_id_${currentUserId}`, activeConvId);
           } catch {
             // Ignore storage quota
           }
@@ -474,9 +512,12 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   };
 
   const handleResetChat = async () => {
-    if (window.confirm('Bạn có muốn làm mới cuộc trò chuyện với Lovera AI không?')) {
+    if (window.confirm('Bạn có muốn làm mới cuộc trò chuyện riêng tư với Lovera AI không?')) {
       playSound('click');
-      setMessages(INITIAL_MESSAGES);
+      const resetMsg = getInitialMessages(couple.userA.name);
+      setMessages(resetMsg);
+      localStorage.removeItem(`lovera_chat_history_${currentUserId}`);
+      localStorage.removeItem(`lovera_active_ai_conv_id_${currentUserId}`);
       localStorage.removeItem('lovera_chat_history');
       localStorage.removeItem('lovera_active_ai_conv_id');
       setShowBanner(true);
@@ -487,9 +528,9 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           if (conversationId) {
             await aiChatService.archiveConversation(conversationId);
           }
-          const newConv = await aiChatService.createConversation('Tư vấn hẹn hò mới');
+          const newConv = await aiChatService.createConversation(`Tư vấn riêng tư - ${couple.userA.name || 'Tôi'}`);
           setConversationId(newConv.id);
-          localStorage.setItem('lovera_active_ai_conv_id', newConv.id);
+          localStorage.setItem(`lovera_active_ai_conv_id_${currentUserId}`, newConv.id);
         } catch (err) {
           console.warn('[ChatbotScreen] Reset backend chat error:', err);
         }
@@ -540,9 +581,13 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                 <span>{isBackendConnected ? 'Backend AI' : (geminiActive ? 'Gemini 2.5' : 'Bật Gemini')}</span>
               </button>
             </div>
-            <p className="text-[11px] text-stone-500 flex items-center gap-1">
-              <span>Trợ lý tình yêu 1:1 cho {couple.userA.name} & {couple.userB.name}</span>
-            </p>
+            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shadow-2xs">
+                <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                <span>Tư vấn riêng tư cho {couple.userA.name}</span>
+              </span>
+              <span className="text-[10px] text-stone-400">🔒 Đối phương không thể xem</span>
+            </div>
           </div>
         </div>
 
@@ -781,7 +826,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Hỏi ý tưởng hẹn hò, quà tặng, tâm sự..."
+          placeholder="Hỏi ý tưởng hẹn hò, quà tặng, tâm sự riêng tư..."
           className="flex-1 bg-stone-50 border border-stone-200 rounded-2xl px-3.5 py-2.5 text-xs text-stone-800 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition-all"
         />
 
