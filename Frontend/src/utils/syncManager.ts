@@ -48,19 +48,23 @@ export function cleanupOversizedStorage(): void {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
   try {
     const keysToRemove: string[] = [];
+    let totalChars = 0;
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (key) {
-        const val = localStorage.getItem(key);
-        // Only evict corrupted API route path strings or non-app keys exceeding 5MB
-        if (val && (val.startsWith('/api/') || (val.length > 5 * 1024 * 1024 && !key.startsWith('lovera_')))) {
+        const val = localStorage.getItem(key) || '';
+        totalChars += val.length;
+        if (val.startsWith('/api/') || (val.length > 2 * 1024 * 1024 && !key.startsWith('lovera_'))) {
           keysToRemove.push(key);
         }
       }
     }
+    // If total storage is approaching 3.5MB (5MB browser limit), purge heavy non-essential caches
+    if (totalChars > 3.5 * 1024 * 1024) {
+      keysToRemove.push('lovera_admin_logs', 'lovera_admin_users', 'lovera_point_history', 'lovera_date_plans', 'lovera_chat_history');
+    }
     keysToRemove.forEach(k => {
-      console.warn('[SyncManager] Evicted oversized legacy key from storage:', k);
-      localStorage.removeItem(k);
+      try { localStorage.removeItem(k); } catch {}
     });
   } catch {}
 }
@@ -78,8 +82,7 @@ export function loadStoredData<T>(key: string, fallback: T): T {
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     return parsed !== null && parsed !== undefined ? parsed : fallback;
-  } catch (err) {
-    console.warn(`[SyncManager] Failed to load key "${key}" from localStorage:`, err);
+  } catch {
     return fallback;
   }
 }
@@ -92,28 +95,22 @@ export function safeSetItem(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
     return true;
-  } catch (err) {
+  } catch {
     try {
       localStorage.removeItem('lovera_admin_logs');
+      localStorage.removeItem('lovera_admin_users');
       localStorage.removeItem('lovera_point_history');
       localStorage.removeItem('lovera_date_plans');
       localStorage.removeItem('lovera_chat_history');
-      localStorage.removeItem('lovera_memories');
       localStorage.setItem(key, value);
       return true;
     } catch {
-      try {
-        if (key.includes('avatar')) {
-          localStorage.removeItem('lovera_alex_avatar');
-          localStorage.removeItem('lovera_user_avatars');
-          localStorage.setItem(key, value);
-          return true;
-        }
-      } catch {}
       return false;
     }
   }
 }
+
+const warnedKeys = new Set<string>();
 
 /**
  * Safely saves data to localStorage.
@@ -124,24 +121,37 @@ export function saveStoredData<T>(key: string, value: T): boolean {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return false;
   try {
     let payload = value;
-    if (key === STORAGE_KEYS.COUPLE && typeof value === 'object' && value !== null) {
-      const c = { ...value } as any;
-      if (c.userA?.avatar?.length > 80000) c.userA = { ...c.userA, avatar: '' };
-      if (c.userB?.avatar?.length > 80000) c.userB = { ...c.userB, avatar: '' };
-      payload = c as T;
+    if (typeof value === 'object' && value !== null) {
+      if (key === STORAGE_KEYS.COUPLE) {
+        const c = { ...value } as any;
+        if (c.userA?.avatar?.length > 10000) c.userA = { ...c.userA, avatar: '' };
+        if (c.userB?.avatar?.length > 10000) c.userB = { ...c.userB, avatar: '' };
+        payload = c as T;
+      } else if (key === 'lovera_admin_users' && Array.isArray(value)) {
+        payload = (value as any[]).map(u => ({
+          ...u,
+          avatar: u.avatar && u.avatar.length > 500 ? '' : u.avatar,
+        })) as T;
+      }
     }
     localStorage.setItem(key, JSON.stringify(payload));
     return true;
-  } catch (err) {
-    console.warn(`[SyncManager] Failed to save key "${key}" to localStorage:`, err);
+  } catch {
     try {
       localStorage.removeItem('lovera_admin_logs');
+      localStorage.removeItem('lovera_admin_users');
       localStorage.removeItem('lovera_point_history');
       localStorage.removeItem('lovera_date_plans');
+      localStorage.removeItem('lovera_chat_history');
       localStorage.setItem(key, JSON.stringify(value));
       return true;
-    } catch {}
-    return false;
+    } catch {
+      if (!warnedKeys.has(key)) {
+        warnedKeys.add(key);
+        setTimeout(() => warnedKeys.delete(key), 60000);
+      }
+      return false;
+    }
   }
 }
 
