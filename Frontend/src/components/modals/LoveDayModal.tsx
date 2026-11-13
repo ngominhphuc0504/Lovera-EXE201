@@ -5,7 +5,7 @@ import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
 interface LoveDayModalProps {
   currentStartDate: string;
   onClose: () => void;
-  onSave: (newDate: string) => void;
+  onSave: (newDate: string) => Promise<void> | void;
 }
 
 export const LoveDayModal: React.FC<LoveDayModalProps> = ({
@@ -15,6 +15,7 @@ export const LoveDayModal: React.FC<LoveDayModalProps> = ({
 }) => {
   const [selectedDate, setSelectedDate] = useState(currentStartDate);
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Maximum allowed date is today (no future date allowed)
   const todayStr = new Date().toISOString().split('T')[0];
@@ -32,14 +33,26 @@ export const LoveDayModal: React.FC<LoveDayModalProps> = ({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (isSubmitting) return;
+
     if (selectedDate > todayStr) {
       setError('Vui lòng chọn ngày hợp lệ trong quá khứ hoặc hôm nay.');
       playSound('error');
       return;
     }
-    playSound('success');
-    onSave(selectedDate);
+
+    try {
+      setIsSubmitting(true);
+      setError('');
+      await onSave(selectedDate);
+      playSound('success');
+    } catch (err: any) {
+      setError(err?.message || 'Không thể lưu ngày yêu. Vui lòng thử lại sau.');
+      playSound('error');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -131,11 +144,19 @@ export const LoveDayModal: React.FC<LoveDayModalProps> = ({
 
           {/* CTA */}
           <button
+            type="button"
+            disabled={isSubmitting}
             onClick={handleSave}
-            className="w-full min-h-[44px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/20 active:scale-98 transition-all flex items-center justify-center gap-2"
+            className="w-full min-h-[44px] py-3 px-4 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-600 hover:to-purple-700 text-white font-semibold text-xs shadow-md shadow-rose-500/20 active:scale-98 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <span>Lưu & Đồng Bộ Với Người Thương</span>
-            <Sparkles className="w-4 h-4" />
+            {isSubmitting ? (
+              <span>Đang lưu ngày yêu...</span>
+            ) : (
+              <>
+                <span>Lưu & Đồng Bộ Với Người Thương</span>
+                <Sparkles className="w-4 h-4" />
+              </>
+            )}
           </button>
         </div>
       </div>

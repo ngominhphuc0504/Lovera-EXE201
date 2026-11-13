@@ -224,3 +224,59 @@ input[type=range].slider-romantic::-webkit-slider-runnable-track {
 .animate-firefly {
   animation: fireflyPulse 3s ease-in-out infinite;
 }
+
+@keyframes gentleSway {
+  0%, 100% {
+    transform: rotate(-3deg);
+  }
+  50% {
+    transform: rotate(3deg);
+  }
+}
+
+.animate-gentle-sway {
+  transform-origin: 212px 105px;
+  animation: gentleSway 3.6s ease-in-out infinite;
+}
+
+@keyframes gentleSwayLeft {
+  0%, 100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes gentleSwayCenter {
+  0%, 100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+
+@keyframes gentleSwayRight {
+  0%, 100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+
+.animate-gentle-sway-left {
+  transform-origin: 106px 92px;
+  animation: gentleSwayLeft 4.2s ease-in-out infinite;
+}
+
+.animate-gentle-sway-center {
+  transform-origin: 170px 106px;
+  animation: gentleSwayCenter 4.6s ease-in-out 0.6s infinite;
+}
+
+.animate-gentle-sway-right {
+  transform-origin: 234px 92px;
+  animation: gentleSwayRight 3.9s ease-in-out 1.2s infinite;
+}

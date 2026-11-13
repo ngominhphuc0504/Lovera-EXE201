@@ -1,3 +1,6 @@
+import avatarAlex from '../assets/images/partner_avatar_alex_1790144456462.jpg';
+import avatarSam from '../assets/images/partner_avatar_sam_1790144470464.jpg';
+
 export interface UserDirectoryItem {
   id: string;
   name: string;
@@ -36,6 +39,25 @@ export function isValidDisplayAvatar(url?: string | null): boolean {
   );
 }
 
+export function isGuid(str?: string | null): boolean {
+  if (!str) return false;
+  return /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(str.trim());
+}
+
+export function isMockAvatar(url?: string | null): boolean {
+  if (!url) return true;
+  const trimmed = url.trim();
+  return (
+    trimmed === avatarSam ||
+    trimmed === avatarAlex ||
+    trimmed.includes('partner_avatar_sam') ||
+    trimmed.includes('partner_avatar_alex') ||
+    trimmed.includes('unsplash.com') ||
+    trimmed.startsWith('/api/') ||
+    trimmed === 'avatar'
+  );
+}
+
 export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -51,7 +73,7 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-// Auto-clean any legacy corrupted /api/ or dead blob: keys from storage on startup
+// Auto-clean any legacy corrupted /api/ or dead blob: or mock avatar keys from storage on startup
 if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
   try {
     const rawMap = localStorage.getItem(AVATAR_MAP_KEY);
@@ -59,7 +81,7 @@ if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
       const map = JSON.parse(rawMap);
       let changed = false;
       for (const k of Object.keys(map)) {
-        if (!map[k] || !isValidDisplayAvatar(map[k]) || map[k].startsWith('blob:')) {
+        if (!map[k] || !isValidDisplayAvatar(map[k]) || isMockAvatar(map[k]) || map[k].startsWith('blob:')) {
           delete map[k];
           changed = true;
         }
@@ -72,8 +94,12 @@ if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
       const dir = JSON.parse(rawDir);
       let changed = false;
       for (const k of Object.keys(dir)) {
-        if (dir[k]?.avatar && (!isValidDisplayAvatar(dir[k].avatar) || dir[k].avatar.startsWith('blob:'))) {
+        if (dir[k]?.avatar && (!isValidDisplayAvatar(dir[k].avatar) || isMockAvatar(dir[k].avatar) || dir[k].avatar.startsWith('blob:'))) {
           dir[k].avatar = '';
+          changed = true;
+        }
+        if (dir[k]?.name && (isGuid(dir[k].name) || dir[k].name === 'Người Thương')) {
+          delete dir[k];
           changed = true;
         }
       }
@@ -83,13 +109,23 @@ if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
 }
 
 export function saveUserAvatar(identifier: string, avatarUrl: string): void {
-  if (!identifier || !avatarUrl || !isValidDisplayAvatar(avatarUrl)) return;
+  if (!identifier || !avatarUrl || !isValidDisplayAvatar(avatarUrl) || isMockAvatar(avatarUrl)) return;
   const key = identifier.toLowerCase().trim();
   try {
     const raw = localStorage.getItem(AVATAR_MAP_KEY);
     const map = raw ? JSON.parse(raw) : {};
     map[key] = avatarUrl;
-    localStorage.setItem(AVATAR_MAP_KEY, JSON.stringify(map));
+    // Keep map compact (max 8 keys) to protect storage quota
+    const keys = Object.keys(map);
+    if (keys.length > 8) {
+      delete map[keys[0]];
+    }
+    try {
+      localStorage.setItem(AVATAR_MAP_KEY, JSON.stringify(map));
+    } catch {
+      const pruned: Record<string, string> = { [key]: avatarUrl };
+      try { localStorage.setItem(AVATAR_MAP_KEY, JSON.stringify(pruned)); } catch {}
+    }
   } catch {}
 }
 
@@ -99,20 +135,20 @@ export function getUserAvatar(identifier?: string): string | undefined {
   try {
     const raw = localStorage.getItem(AVATAR_MAP_KEY);
     const map = raw ? JSON.parse(raw) : {};
-    if (map[key] && isValidDisplayAvatar(map[key]) && !map[key].startsWith('blob:')) return map[key];
+    if (map[key] && isValidDisplayAvatar(map[key]) && !isMockAvatar(map[key]) && !map[key].startsWith('blob:')) return map[key];
   } catch {}
 
   // Fallback check known users directory
   try {
     const dir = getKnownUsers();
-    if (dir[key]?.avatar && isValidDisplayAvatar(dir[key].avatar) && !dir[key].avatar.startsWith('blob:')) return dir[key].avatar;
+    if (dir[key]?.avatar && isValidDisplayAvatar(dir[key].avatar) && !isMockAvatar(dir[key].avatar) && !dir[key].avatar.startsWith('blob:')) return dir[key].avatar;
     for (const u of Object.values(dir)) {
       if (
         u.id.toLowerCase() === key ||
         u.name.toLowerCase().trim() === key ||
         (u.email && u.email.toLowerCase().trim() === key)
       ) {
-        if (u.avatar && isValidDisplayAvatar(u.avatar) && !u.avatar.startsWith('blob:')) return u.avatar;
+        if (u.avatar && isValidDisplayAvatar(u.avatar) && !isMockAvatar(u.avatar) && !u.avatar.startsWith('blob:')) return u.avatar;
       }
     }
   } catch {}
@@ -131,7 +167,7 @@ export function getKnownUsers(): Record<string, UserDirectoryItem> {
 }
 
 export function saveKnownUser(user: Partial<UserDirectoryItem> & { id: string; name: string }): void {
-  if (!user.id || !user.name || user.name === 'Người Thương') return;
+  if (!user.id || !user.name || user.name === 'Người Thương' || isGuid(user.name)) return;
   try {
     const current = getKnownUsers();
     const idKey = user.id.toLowerCase();
@@ -145,7 +181,13 @@ export function saveKnownUser(user: Partial<UserDirectoryItem> & { id: string; n
       email: user.email || current[idKey]?.email || '',
       avatar: finalAvatar || '',
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+    } catch {
+      // If storage is constrained in incognito, strip large avatar before saving
+      current[idKey].avatar = '';
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(current)); } catch {}
+    }
 
     if (finalAvatar && isValidDisplayAvatar(finalAvatar)) {
       saveUserAvatar(user.id, finalAvatar);
@@ -158,7 +200,10 @@ export function saveKnownUser(user: Partial<UserDirectoryItem> & { id: string; n
 export function findKnownUserById(userId?: string): UserDirectoryItem | null {
   if (!userId) return null;
   const dir = getKnownUsers();
-  return dir[userId.toLowerCase()] || null;
+  const found = dir[userId.toLowerCase()];
+  if (!found) return null;
+  if (isGuid(found.name)) return { ...found, name: '' };
+  return found;
 }
 
 export function findKnownUserByName(name?: string): UserDirectoryItem | null {

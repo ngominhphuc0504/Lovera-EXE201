@@ -16,7 +16,8 @@ import {
 import { CoupleData, MemoryItem } from '../../types';
 import { INITIAL_ACTIVITY_OPTIONS, INITIAL_STATUS_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
-import { compressImageFile } from '../../utils/syncManager';
+import { AvatarUpload } from '../common/AvatarUpload';
+import { isGuid } from '../../utils/userDirectory';
 import { MemoryPhoto } from '../common/MemoryPhoto';
 
 const getStatusLabel = (status: CoupleData['userA']['status']) =>
@@ -26,6 +27,19 @@ const getActivityLabel = (activity?: CoupleData['userA']['activity']) =>
   activity
     ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === activity)?.label ?? activity
     : 'Chưa chọn hoạt động';
+
+const getCleanDisplayName = (name?: string, fallback = 'Người Thương') => {
+  if (!name) return fallback;
+  const t = name.trim();
+  if (!t || t === 'Người Thương' || t === 'Chưa kết nối' || isGuid(t)) {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('lovera_partner_nickname');
+      if (saved && !isGuid(saved) && saved !== 'Người Thương') return saved;
+    }
+    return fallback;
+  }
+  return t;
+};
 
 interface HomeScreenProps {
   onUpdatePartnerNickname?: (newName: string) => void;
@@ -40,7 +54,7 @@ interface HomeScreenProps {
   onNavigateToPairing?: () => void;
   onNavigateToProfile?: () => void;
   onNavigateToShared?: () => void;
-  onUpdateAvatar?: (newAvatarUrl: string, file?: File) => void;
+  onUpdateAvatar?: (newAvatarUrl: string, file: File) => Promise<void>;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -61,44 +75,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { userA, userB, startDate } = couple;
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 15MB theo tiêu chuẩn hệ thống.');
-      return;
-    }
-
-    try {
-      const compressed = await compressImageFile(file, 300, 0.85);
-      onUpdateAvatar?.(compressed, file);
-      playSound('success');
-    } catch {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        if (base64) {
-          onUpdateAvatar?.(base64, file);
-          playSound('success');
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   // Nếu chưa ghép đôi, ẩn hoàn toàn ảnh người thứ hai và các chức năng cặp đôi
   if (!couple.isPaired) {
     return (
       <div className="min-h-full flex flex-col justify-center items-center p-6 text-stone-800 select-none">
         {/* Hidden file input for Alex's avatar */}
-        <input 
-          ref={fileInputRef} 
-          type="file" 
-          accept="image/*" 
-          className="hidden" 
-          onChange={handleAvatarChange} 
-        />
+        <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
 
         <div className="max-w-sm w-full bg-white/95 backdrop-blur-md rounded-3xl p-6 border border-rose-100 shadow-sm text-center space-y-4">
           <div 
@@ -187,25 +171,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <div className="min-h-full flex flex-col justify-evenly gap-2 py-2 text-stone-800 select-none">
       {/* Hidden file input for Alex's avatar in paired home */}
-      <input 
-        ref={fileInputRef} 
-        type="file" 
-        accept="image/*" 
-        className="hidden" 
-        onChange={handleAvatarChange} 
-      />
+      <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
       
       {/* ------------------------------------------------------------- */}
       {/* CARD 1: COUPLE PROFILE (Alex & Sam & Connection Line)         */}
       {/* ------------------------------------------------------------- */}
-      <section aria-label="Hồ sơ cặp đôi" className="mx-4 bg-white/95 backdrop-blur-md rounded-3xl p-3 border border-rose-100/90 shadow-xs">
-        <div className="flex items-center justify-between gap-1.5 sm:gap-3">
+      <section aria-label="Hồ sơ cặp đôi" className="mx-4 bg-white/95 backdrop-blur-md rounded-3xl p-2 min-[375px]:p-3 border border-rose-100/90 shadow-xs">
+        <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_1.5rem_minmax(0,1fr)_2.75rem] items-stretch gap-0.5 min-[375px]:gap-1">
           
           {/* Partner 1: User A */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="contents">
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className="relative cursor-pointer group select-none shrink-0"
+              className="relative cursor-pointer group select-none shrink-0 self-center col-start-1 row-start-1"
               title="Nhấn để đổi ảnh đại diện của bạn"
             >
               <div className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-rose-400 ring-offset-2 ring-offset-white shadow-xs group-hover:scale-105 transition-transform">
@@ -236,23 +214,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border-2 border-white"></span>
               </span>
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1">
-                <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <div className="col-start-2 row-start-1 grid min-w-0 grid-rows-[20px_18px_18px]">
+              <div className="flex min-w-0 items-center gap-1">
+                <h3 title={userA.name} className="min-w-0 truncate font-bold text-[10px] min-[375px]:text-xs text-stone-900 leading-4">{userA.name}</h3>
+                <span className="inline-flex h-4 shrink-0 items-center gap-0.5 whitespace-nowrap text-[8px] min-[375px]:text-[9px] font-semibold leading-none text-emerald-700 bg-emerald-50 px-0.5 py-0.2 rounded-full border border-emerald-200/60">
+                  <span className="w-1 h-1 rounded-full bg-emerald-500 shrink-0"></span>
                   Online
                 </span>
-                <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userA.name}</h3>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-start gap-0.5 mt-0.5 font-normal whitespace-normal" title={`${getStatusLabel(userA.status)}${userA.activity ? ' · ' + getActivityLabel(userA.activity) : ''}`}>
-                <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />
-                <span className="[overflow-wrap:anywhere]">{getStatusLabel(userA.status)}{userA.activity ? ` · ${getActivityLabel(userA.activity)}` : ` · ${getActivityLabel()}`}</span>
+              <p className="flex h-full min-w-0 items-center gap-0.5 text-[9px] min-[375px]:text-[10px] text-stone-500" title={getStatusLabel(userA.status)}>
+                {userA.status === 'Available' ? <Sparkles className="w-2.5 h-2.5 text-amber-500 shrink-0" /> : <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />}
+                <span className="min-w-0 truncate">{getStatusLabel(userA.status)}</span>
               </p>
+              <p className="truncate text-[9px] min-[375px]:text-[10px] leading-[18px] text-stone-500" title={getActivityLabel(userA.activity)}>{getActivityLabel(userA.activity)}</p>
             </div>
           </div>
 
           {/* Center Romantic Connection (Always Centered & Never Overlapped) */}
-          <div className="flex flex-col items-center justify-center px-1 shrink-0 relative">
+          <div className="flex h-6 w-6 flex-col items-center justify-center self-center relative col-start-3 row-start-1">
             <div className="w-6 sm:w-10 h-[1.5px] bg-gradient-to-r from-rose-300 via-rose-400 to-purple-300 rounded-full"></div>
             <div className="absolute bg-white p-1 rounded-full border border-rose-200 shadow-xs flex items-center justify-center">
               <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 animate-heart-pulse" />
@@ -260,15 +239,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
 
           {/* Partner 2: User B (Display-only: each user uploads their own photo) */}
-          <div className="flex items-center gap-2 min-w-0 flex-1 flex-row-reverse text-left">
-            <div className="relative shrink-0">
+          <div className="contents">
+            <div className="relative shrink-0 self-center col-start-5 row-start-1">
               <div
                 className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs"
-                title={userB.name}
+                title={getCleanDisplayName(userB.name)}
               >
                 <img
                   src={userB.avatar}
-                  alt={userB.name}
+                  alt={getCleanDisplayName(userB.name)}
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250';
@@ -276,6 +255,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   className="w-full h-full object-cover"
                 />
               </div>
+                  {onUpdatePartnerNickname && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const defaultPromptVal = (userB.name && !isGuid(userB.name) && userB.name !== 'Người Thương') ? userB.name : (getCleanDisplayName(userB.name) !== 'Người Thương' ? getCleanDisplayName(userB.name) : '');
+                        const newName = prompt('Đổi biệt danh cho người ấy:', defaultPromptVal);
+                        if (newName && newName.trim() && !isGuid(newName.trim())) {
+                          onUpdatePartnerNickname(newName.trim());
+                        }
+                      }}
+                      className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-purple-100 bg-white text-stone-400 shadow-xs hover:bg-rose-100 hover:text-rose-600 transition-colors cursor-pointer"
+                      title="Đổi biệt danh cho người ấy"
+                    >
+                      <Edit3 className="w-2.5 h-2.5" />
+                    </button>
+                  )}
               {userB.isOnline ? (
                 <span className="absolute bottom-0 right-0 flex h-3 w-3 pointer-events-none">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -285,41 +280,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <span className="absolute bottom-0 right-0 w-3 h-3 bg-stone-300 border-2 border-white rounded-full pointer-events-none"></span>
               )}
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center justify-start gap-1">
+            <div className="col-start-4 row-start-1 grid min-w-0 grid-rows-[20px_18px_18px] text-right">
+              <div className="flex min-w-0 items-center justify-end gap-1">
+                <div className="min-w-0">
+                  <h3 title={getCleanDisplayName(userB.name)} className="min-w-0 truncate font-bold text-[10px] min-[375px]:text-xs text-stone-900 leading-4">{getCleanDisplayName(userB.name)}</h3>
+
+                </div>
                 {userB.isOnline ? (
-                  <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded-full border border-emerald-200/60 shrink-0">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span className="inline-flex h-4 shrink-0 items-center gap-0.5 whitespace-nowrap text-[8px] min-[375px]:text-[9px] font-semibold leading-none text-emerald-700 bg-emerald-50 px-0.5 py-0.2 rounded-full border border-emerald-200/60">
+                    <span className="w-1 h-1 rounded-full bg-emerald-500 shrink-0"></span>
                     Online
                   </span>
                 ) : (
-                  <span className="text-[9px] font-semibold text-stone-400 bg-stone-100 px-1.5 py-0.2 rounded-full shrink-0">
+                  <span className="inline-flex h-4 shrink-0 items-center whitespace-nowrap text-[8px] min-[375px]:text-[9px] font-semibold leading-none text-stone-400 bg-stone-100 px-0.5 py-0.2 rounded-full">
                     {getStatusLabel(userB.status)}
                   </span>
                 )}
-                <div className="flex items-center gap-1 min-w-0">
-                  <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userB.name}</h3>
-                  {onUpdatePartnerNickname && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const newName = prompt('Đổi biệt danh cho người ấy:', userB.name);
-                        if (newName && newName.trim()) {
-                          onUpdatePartnerNickname(newName.trim());
-                        }
-                      }}
-                      className="p-0.5 hover:bg-rose-100 rounded text-stone-400 hover:text-rose-600 transition-colors cursor-pointer"
-                      title="Đổi biệt danh cho người ấy"
-                    >
-                      <Edit3 className="w-2.5 h-2.5" />
-                    </button>
-                  )}
-                </div>
               </div>
-              <p className="text-[10px] text-stone-500 flex items-start justify-start gap-0.5 mt-0.5 font-normal whitespace-normal" title={`${getStatusLabel(userB.status)}${userB.activity ? ' · ' + getActivityLabel(userB.activity) : ''}`}>
-                <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />
-                <span className="[overflow-wrap:anywhere]">{getStatusLabel(userB.status)}{userB.activity ? ` · ${getActivityLabel(userB.activity)}` : ''}</span>
+              <p className="flex h-full min-w-0 items-center justify-end gap-0.5 text-[9px] min-[375px]:text-[10px] text-stone-500" title={getStatusLabel(userB.status)}>
+
+                {userB.status === 'Available' ? <Sparkles className="w-2.5 h-2.5 text-amber-500 shrink-0" /> : <Flame className="w-2.5 h-2.5 text-amber-500 shrink-0" />}
+                <span className="min-w-0 truncate">{getStatusLabel(userB.status)}</span>
               </p>
+              <p className="truncate text-[9px] min-[375px]:text-[10px] leading-[18px] text-stone-500" title={getActivityLabel(userB.activity)}>{getActivityLabel(userB.activity)}</p>
             </div>
           </div>
         </div>
@@ -394,6 +377,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* CARD 3: CONNECTION STATUS SUMMARY                             */}
       {/* ------------------------------------------------------------- */}
       <section aria-label="Trạng thái kết nối" className="mx-4 bg-white/95 backdrop-blur-md rounded-3xl p-3 border border-purple-100/90 shadow-xs">
+
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800">
             <Clock className="w-3.5 h-3.5 text-purple-600" />
@@ -418,7 +402,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
 
           <div className="bg-purple-50/50 p-2.5 rounded-2xl border border-purple-100/80">
-            <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{userB.name}:</span>
+            <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{getCleanDisplayName(userB.name)}:</span>
             <div className="font-bold text-stone-900 flex items-center gap-1">
               <span>{userB.activity ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === userB.activity)?.icon : '💬'}</span>
               <span>{getStatusLabel(userB.status)}</span>
