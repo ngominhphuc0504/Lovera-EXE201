@@ -16,7 +16,7 @@ import {
 import { CoupleData, MemoryItem } from '../../types';
 import { INITIAL_ACTIVITY_OPTIONS, INITIAL_STATUS_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
-import { compressImageFile } from '../../utils/syncManager';
+import { AvatarUpload } from '../common/AvatarUpload';
 import { isGuid } from '../../utils/userDirectory';
 import { MemoryPhoto } from '../common/MemoryPhoto';
 
@@ -54,7 +54,7 @@ interface HomeScreenProps {
   onNavigateToPairing?: () => void;
   onNavigateToProfile?: () => void;
   onNavigateToShared?: () => void;
-  onUpdateAvatar?: (newAvatarUrl: string, file?: File) => void;
+  onUpdateAvatar?: (newAvatarUrl: string, file: File) => Promise<void>;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -75,44 +75,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { userA, userB, startDate } = couple;
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 15MB theo tiêu chuẩn hệ thống.');
-      return;
-    }
-
-    try {
-      const compressed = await compressImageFile(file, 300, 0.85);
-      onUpdateAvatar?.(compressed, file);
-      playSound('success');
-    } catch {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        if (base64) {
-          onUpdateAvatar?.(base64, file);
-          playSound('success');
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   // Nếu chưa ghép đôi, ẩn hoàn toàn ảnh người thứ hai và các chức năng cặp đôi
   if (!couple.isPaired) {
     return (
       <div className="min-h-full flex flex-col justify-center items-center p-6 text-stone-800 select-none">
         {/* Hidden file input for Alex's avatar */}
-        <input 
-          ref={fileInputRef} 
-          type="file" 
-          accept="image/*" 
-          className="hidden" 
-          onChange={handleAvatarChange} 
-        />
+        <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
 
         <div className="max-w-sm w-full bg-white/95 backdrop-blur-md rounded-3xl p-6 border border-rose-100 shadow-sm text-center space-y-4">
           <div 
@@ -201,13 +171,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <div className="min-h-full flex flex-col justify-evenly gap-2 py-2 text-stone-800 select-none">
       {/* Hidden file input for Alex's avatar in paired home */}
-      <input 
-        ref={fileInputRef} 
-        type="file" 
-        accept="image/*" 
-        className="hidden" 
-        onChange={handleAvatarChange} 
-      />
+      <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
       
       {/* ------------------------------------------------------------- */}
       {/* CARD 1: COUPLE PROFILE (Alex & Sam & Connection Line)         */}
@@ -409,6 +373,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* CARD 3: CONNECTION STATUS SUMMARY                             */}
       {/* ------------------------------------------------------------- */}
       <section aria-label="Trạng thái kết nối" className="mx-4 bg-white/95 backdrop-blur-md rounded-3xl p-3 border border-purple-100/90 shadow-xs">
+
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800">
             <Clock className="w-3.5 h-3.5 text-purple-600" />

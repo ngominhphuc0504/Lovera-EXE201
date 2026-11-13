@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { CoupleData } from '../../types';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
-import { compressImageFile } from '../../utils/syncManager';
+import { AvatarUpload } from '../common/AvatarUpload';
 import { isGuid } from '../../utils/userDirectory';
 
 interface ProfileScreenProps {
@@ -30,7 +30,7 @@ interface ProfileScreenProps {
   onResetDemoFlow: (screen: 'welcome' | 'login' | 'register' | 'pairing' | 'splash' | 'onboarding') => void;
   onNavigateToPairing?: () => void;
   onUpdateUserName?: (newName: string) => void;
-  onUpdateAvatar?: (newAvatarUrl: string, file?: File) => void;
+  onUpdateAvatar?: (newAvatarUrl: string, file: File) => Promise<void>;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -66,35 +66,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const [showUnpairConfirm, setShowUnpairConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 15MB.');
-      return;
-    }
-
-    try {
-      const compressed = await compressImageFile(file, 400, 0.85);
-      onUpdateAvatar?.(compressed, file);
-      playSound('success');
-      setSavedToast('Đã đổi và đồng bộ avatar thành công!');
-      setTimeout(() => setSavedToast(''), 2500);
-    } catch {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        if (base64) {
-          onUpdateAvatar?.(base64, file);
-          playSound('success');
-          setSavedToast('Đã đổi và đồng bộ avatar thành công!');
-          setTimeout(() => setSavedToast(''), 2500);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const [isSubmittingNicknames, setIsSubmittingNicknames] = useState(false);
   const [isSubmittingPersonalName, setIsSubmittingPersonalName] = useState(false);
@@ -153,13 +125,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     <div className="space-y-4 pb-28 pt-3 text-stone-800 select-none">
       
       {/* Hidden file input for Alex's avatar */}
-      <input 
-        ref={fileInputRef} 
-        type="file" 
-        accept="image/*" 
-        className="hidden" 
-        onChange={handleAvatarChange} 
-      />
+      <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
 
       {/* Screen Header */}
       <div className="mx-4 flex flex-wrap items-center gap-2">

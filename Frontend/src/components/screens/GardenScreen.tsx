@@ -24,7 +24,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import { CoupleData, PointHistoryItem, GardenStage, GardenSeason, GardenEcoMetrics, StageStatus } from '../../types';
+import { CoupleData, PointHistoryItem, GardenStage, GardenSeason, GardenEcoMetrics } from '../../types';
 import { playSound } from '../../utils/audio';
 import { GardenTreeVisual } from './GardenTreeVisual';
 import { GARDEN_CONFIG } from '../../constants/gardenConfig';
@@ -117,16 +117,11 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
     return () => clearTimeout(timer);
   }, [toastMessage]);
 
-  // User can freely explore and admire all 5 stages (Cấp 1 - Cấp 5)
-  const effectivePreviewStage: GardenStage = previewStage;
-
-  const getStageStatus = (stage: GardenStage, currentStage: GardenStage): 'COMPLETED' | 'CURRENT' | 'UPCOMING' => {
-    if (stage < currentStage) return 'COMPLETED';
-    if (stage === currentStage) return 'CURRENT';
-    return 'UPCOMING';
-  };
+  // Clamp before rendering, including the render before the stage-change effect runs.
+  const effectivePreviewStage = Math.min(previewStage, realStage) as GardenStage;
 
   const handleSelectStage = (stg: GardenStage) => {
+    if (getStageStatus(stg, realStage) === 'LOCKED') return;
     playSound('click');
     setPreviewStage(stg);
   };
@@ -572,7 +567,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
           </div>
         )}
 
-        {/* Stage Timeline Selector: 5 Stages with 3 States (COMPLETED / CURRENT / UPCOMING) */}
+        {/* Stage Timeline Selector: COMPLETED / CURRENT / LOCKED */}
         <div className="grid grid-cols-5 gap-1 p-1 bg-white/85 backdrop-blur-md rounded-2xl border border-white/80 mb-3 shadow-2xs z-10 relative">
           {([1, 2, 3, 4, 5] as GardenStage[]).map((stg) => {
             const status = getStageStatus(stg, realStage);
@@ -589,8 +584,12 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
             return (
               <button
                 key={stg}
+                type="button"
+                disabled={status === 'LOCKED'}
+                aria-label={`Cấp ${stg}: ${status === 'LOCKED' ? 'Chưa mở khóa' : status === 'COMPLETED' ? 'Đã đạt' : 'Đang chăm'}`}
+                aria-current={status === 'CURRENT' ? 'step' : undefined}
                 onClick={() => handleSelectStage(stg)}
-                title={status === 'UPCOMING' ? `Xem cây Cấp ${stg} (Sắp mở)` : `Xem cây Cấp ${stg}`}
+                title={status === 'LOCKED' ? `Cấp ${stg}: Chưa mở khóa` : `Xem cây Cấp ${stg}`}
                 className={`py-1.5 px-0.5 rounded-xl text-[10px] font-bold transition-all flex flex-col items-center justify-center select-none cursor-pointer ${
                   isSelected
                     ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-xs ring-2 ring-emerald-400 scale-102'
@@ -598,11 +597,12 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                     ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-extrabold hover:bg-emerald-200/80'
                     : status === 'COMPLETED'
                     ? 'bg-emerald-50/80 text-emerald-700 hover:bg-emerald-100/90 border border-emerald-200/60'
-                    : 'bg-white/90 text-stone-600 hover:text-stone-900 hover:bg-emerald-50/70 border border-stone-200/80'
+                    : 'bg-white/90 text-stone-400 border border-stone-200/80 disabled:cursor-not-allowed'
                 }`}
               >
                 <div className="flex items-center gap-0.5 truncate">
-                  <span className="truncate">{labels}</span>
+                  {status === 'LOCKED' && <Lock aria-hidden="true" className="w-3 h-3 shrink-0" />}
+                  <span className="truncate">{status === 'LOCKED' ? `Cấp ${stg}` : labels}</span>
                 </div>
 
                 {status === 'COMPLETED' && (
@@ -615,9 +615,9 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
                     Đang chăm 🌱
                   </span>
                 )}
-                {status === 'UPCOMING' && (
-                  <span className={`text-[8px] font-semibold mt-0.5 ${isSelected ? 'text-emerald-100' : 'text-stone-500'}`}>
-                    Mở xem ✨
+                {status === 'LOCKED' && (
+                  <span className="text-[8px] font-semibold mt-0.5 text-stone-500">
+                    Chưa mở khóa
                   </span>
                 )}
               </button>

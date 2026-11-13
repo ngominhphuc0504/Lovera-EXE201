@@ -38,7 +38,7 @@ import {
 } from './data/mockAdminData';
 import { AdminUserAccount, AdminSystemMetric, AdminActivityLog } from './types';
 import { Heart, Smartphone, Monitor, Shield } from 'lucide-react';
-import { STORAGE_KEYS, loadStoredData, saveStoredData, safeSetItem, broadcastMessage, subscribeToSync, cleanupOversizedStorage, dataUrlToFile } from './utils/syncManager';
+import { STORAGE_KEYS, loadStoredData, saveStoredData, safeSetItem, broadcastMessage, subscribeToSync, cleanupOversizedStorage } from './utils/syncManager';
 import { getStoredToken, getStoredUserProfile, clearStoredToken, getSessionKey, isRouteRateLimited } from './services/apiClient';
 import { saveKnownUser, findKnownUserById, saveUserAvatar, getUserAvatar, findKnownUserByName, isValidDisplayAvatar, blobToDataUrl, isMockAvatar, isGuid } from './utils/userDirectory';
 import { authService, ProfileResponse } from './services/authService';
@@ -791,6 +791,9 @@ export default function App() {
           const cleanPartnerStorageAv = (rawPartnerStorageAv && isValidDisplayAvatar(rawPartnerStorageAv) && !isMockAvatar(rawPartnerStorageAv)) ? rawPartnerStorageAv : undefined;
 
           const resolvedPartnerAvatar: string =
+            // Public profile URLs can be displayed directly; /me/avatar is owner-only.
+            ([status.couple?.partner, status.partner, ...(status.couple?.members || [])]
+              .find(member => member?.userId?.toLowerCase() !== profile.id.toLowerCase() && /^https:\/\//i.test(member?.avatarUrl || ''))?.avatarUrl || undefined) ||
             cleanPartnerStorageAv ||
             (isValidDisplayAvatar(prev.userB.avatar) && !isMockAvatar(prev.userB.avatar) && !prev.userB.avatar.startsWith('/api/') ? prev.userB.avatar : undefined) ||
             (getUserAvatar('partner') && !isMockAvatar(getUserAvatar('partner')) ? getUserAvatar('partner')! : undefined) ||
@@ -847,6 +850,7 @@ export default function App() {
         const cleanMyStorageAv = (rawMyStorageAv && isValidDisplayAvatar(rawMyStorageAv) && !isMockAvatar(rawMyStorageAv)) ? rawMyStorageAv : undefined;
 
         const resolvedUserAAvatar: string =
+          (profile.avatarUrl && /^https:\/\//i.test(profile.avatarUrl) ? profile.avatarUrl : undefined) ||
           cleanMyStorageAv ||
           (isValidDisplayAvatar(prev.userA.avatar) && !isMockAvatar(prev.userA.avatar) && !prev.userA.avatar.startsWith('/api/') ? prev.userA.avatar : undefined) ||
           (getUserAvatar('me') && !isMockAvatar(getUserAvatar('me')) ? getUserAvatar('me')! : undefined) ||
@@ -2163,13 +2167,15 @@ export default function App() {
     ]);
   };
 
-  const handleUpdateUserAvatar = async (newAvatarUrl: string, file?: File) => {
+  const handleUpdateUserAvatar = async (newAvatarUrl: string, file: File) => {
     const session = getSessionKey();
     const storedProfile = getStoredUserProfile<{ id?: string; email?: string }>();
     const myId = storedProfile?.id || couple.userA.id;
     const myName = couple.userA.name;
     const myEmail = storedProfile?.email || couple.userA.email;
 
+    // 1. Cập nhật ngay lập tức giao diện & LocalStorage (Optimistic Update)
+    // Đảm bảo ảnh đã crop/zoom được áp dụng ngay lập tức mà không bị kẹt khi backend 429 rate limit
     safeSetItem('lovera_my_avatar', newAvatarUrl);
     safeSetItem('lovera_alex_avatar', newAvatarUrl);
     if (myId) {
@@ -2204,30 +2210,19 @@ export default function App() {
       return u;
     }));
 
-    if (getStoredToken() && !isDemoMode) {
+    // 2. Gửi tệp ảnh đã crop lên máy chủ backend để lưu vĩnh viễn
+    if (!isDemoMode && getStoredToken()) {
       try {
-        let uploadFile = file;
-        if (!uploadFile && newAvatarUrl.startsWith('data:')) {
-          uploadFile = dataUrlToFile(newAvatarUrl, 'avatar.jpg');
-        }
-
-        if (uploadFile) {
-          // 1. Upload to profile avatar on backend
-          try {
-            await authService.uploadAvatar(uploadFile);
-          } catch (e) {
-            console.warn('[App] uploadAvatar to backend failed:', e);
-          }
-
-          // Avatar is saved to user's profile on backend and synced in real-time across tabs/browsers
-          // We intentionally avoid creating redundant memory posts for avatars to preserve rate limit and avoid stale timeline overrides
+        const profile = await authService.uploadAvatar(file);
+        if (profile?.avatarUrl && isCurrentSession(session)) {
+          saveUserAvatar('me', profile.avatarUrl);
         }
       } catch (err) {
-        console.warn('[App] Upload avatar to backend failed:', err);
+        console.warn('[App] uploadAvatar to backend rate limited or failed:', err);
+        // Không throw lỗi ra ngoài để tránh làm hỏng trạng thái avatar đã zoom của người dùng
       }
     }
   };
-
 
   const handleUnpair = async () => {
     const session = getSessionKey();
