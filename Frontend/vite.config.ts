@@ -23,7 +23,8 @@ export default defineConfig(({mode}) => {
             nicknames: Record<string, string>;
             startDate?: string;
             lovePoints?: number;
-          } = { avatars: {}, nicknames: {} };
+            memoryLikes: Record<string, { likes: number; likedBy: string[] }>;
+          } = { avatars: {}, nicknames: {}, memoryLikes: {} };
 
           try {
             if (fs.existsSync(cacheFilePath)) {
@@ -35,6 +36,7 @@ export default defineConfig(({mode}) => {
                   nicknames: parsed.nicknames || {},
                   startDate: parsed.startDate,
                   lovePoints: parsed.lovePoints,
+                  memoryLikes: parsed.memoryLikes || {},
                 };
               }
             }
@@ -92,6 +94,18 @@ export default defineConfig(({mode}) => {
                     const { senderName, partnerName } = data.payload;
                     if (senderName) sharedState.nicknames['sender'] = senderName;
                     if (partnerName) sharedState.nicknames['partner'] = partnerName;
+                    persistState();
+                  } else if (data.type === 'SYNC_MEMORY_LIKES' && data.payload?.id) {
+                    const { id, likes, likedBy } = data.payload;
+                    if (!sharedState.memoryLikes) sharedState.memoryLikes = {};
+                    sharedState.memoryLikes[id] = {
+                      likes: typeof likes === 'number' ? likes : (Array.isArray(likedBy) ? likedBy.length : 0),
+                      likedBy: Array.isArray(likedBy) ? likedBy : []
+                    };
+                    persistState();
+                  } else if (data.type === 'SYNC_ALL_MEMORY_LIKES' && data.payload) {
+                    if (!sharedState.memoryLikes) sharedState.memoryLikes = {};
+                    Object.assign(sharedState.memoryLikes, data.payload);
                     persistState();
                   }
 
@@ -185,7 +199,7 @@ export default defineConfig(({mode}) => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || 'https://january-caught-photographers-zealand.trycloudflare.com',
+          target: env.VITE_BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || 'https://pleasant-enquiries-donald-mounting.trycloudflare.com',
           changeOrigin: true,
           secure: false,
         },

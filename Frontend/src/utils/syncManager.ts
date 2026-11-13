@@ -22,6 +22,7 @@ export const STORAGE_KEYS = {
 export type SyncMessageType = 
   | 'SYNC_MEMORIES'
   | 'SYNC_MEMORY_LIKES'
+  | 'SYNC_ALL_MEMORY_LIKES'
   | 'SYNC_COUPLE'
   | 'SYNC_ADMIN_USERS'
   | 'SYNC_ADMIN_LOGS'

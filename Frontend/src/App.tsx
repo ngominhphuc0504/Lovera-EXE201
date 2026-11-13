@@ -237,7 +237,16 @@ export default function App() {
   const coupleFlight = React.useRef<{ key: string; promise: Promise<boolean | undefined> } | null>(null);
   const MEMORY_LIKES_KEY = 'lovera_memory_likes';
 
-  const getMemoryLikesMap = (): Record<string, { likes: number; isLiked: boolean }> => {
+  const isUserMatch = (userEntry?: string, myId?: string, myName?: string, myEmail?: string): boolean => {
+    if (!userEntry) return false;
+    const entry = userEntry.trim().toLowerCase();
+    if (myId && entry === myId.toLowerCase()) return true;
+    if (myName && entry === myName.toLowerCase()) return true;
+    if (myEmail && entry === myEmail.toLowerCase()) return true;
+    return false;
+  };
+
+  const getMemoryLikesMap = (): Record<string, { likes: number; isLiked?: boolean; likedBy?: string[] }> => {
     try {
       const raw = localStorage.getItem(MEMORY_LIKES_KEY);
       return raw ? JSON.parse(raw) : {};
@@ -246,7 +255,7 @@ export default function App() {
     }
   };
 
-  const saveMemoryLikesMap = (map: Record<string, { likes: number; isLiked: boolean }>) => {
+  const saveMemoryLikesMap = (map: Record<string, { likes: number; isLiked?: boolean; likedBy?: string[] }>) => {
     try {
       localStorage.setItem(MEMORY_LIKES_KEY, JSON.stringify(map));
     } catch {}
@@ -257,8 +266,10 @@ export default function App() {
     remoteLikesMap?: Record<string, { likerUserIds: Set<string>; myLikeItemIds: string[] }>,
   ): MemoryItem => {
     const creatorId = (item.creatorUserId || item.userId || '').toLowerCase();
-    const storedProfile = getStoredUserProfile<{ id: string; displayName?: string }>();
+    const storedProfile = getStoredUserProfile<{ id: string; displayName?: string; email?: string }>();
     const myId = (storedProfile?.id || couple.userA.id || '').toLowerCase();
+    const myName = (cleanName(localStorage.getItem('lovera_my_nickname')) || couple.userA.name || storedProfile?.displayName || 'Tôi').trim();
+    const myEmail = (storedProfile?.email || couple.userA.email || '').toLowerCase();
     const isMine = Boolean(myId && creatorId && myId === creatorId);
 
     const authorName = isMine
@@ -275,8 +286,16 @@ export default function App() {
     const likesMap = getMemoryLikesMap();
     const savedLike = likesMap[item.id];
 
-    const likes = remoteLikeInfo ? remoteLikeInfo.likerUserIds.size : (savedLike?.likes ?? 0);
-    const isLiked = remoteLikeInfo ? (remoteLikeInfo.myLikeItemIds.length > 0) : (savedLike?.isLiked ?? false);
+    const safeLikedBy = Array.isArray(savedLike?.likedBy) ? savedLike.likedBy : [];
+    const isLikedByMe = Boolean(
+      (remoteLikeInfo && remoteLikeInfo.myLikeItemIds.length > 0) ||
+      savedLike?.isLiked ||
+      safeLikedBy.some(u => isUserMatch(u, myId, myName, myEmail))
+    );
+
+    const likes = remoteLikeInfo
+      ? Math.max(remoteLikeInfo.likerUserIds.size, typeof savedLike?.likes === 'number' ? savedLike.likes : safeLikedBy.length)
+      : (typeof savedLike?.likes === 'number' ? savedLike.likes : safeLikedBy.length);
 
     return {
       id: item.id,
@@ -290,7 +309,8 @@ export default function App() {
       creatorUserId: creatorId,
       isMyMemory: isMine,
       likes,
-      isLiked,
+      isLiked: isLikedByMe,
+      likedBy: safeLikedBy,
       createdAt: validDate ? createdAt.toLocaleString('vi-VN') : item.createdAtUtc,
     };
   };
@@ -364,9 +384,12 @@ export default function App() {
       const likesMap = getMemoryLikesMap();
       for (const targetId of Object.keys(remoteLikesMap)) {
         const info = remoteLikesMap[targetId];
+        const existing = likesMap[targetId];
+        const safeLikedBy = Array.isArray(existing?.likedBy) ? existing.likedBy : [];
         likesMap[targetId] = {
-          likes: info.likerUserIds.size,
-          isLiked: info.myLikeItemIds.length > 0,
+          likes: Math.max(info.likerUserIds.size, existing?.likes ?? 0),
+          isLiked: info.myLikeItemIds.length > 0 || (existing?.isLiked ?? false),
+          likedBy: safeLikedBy,
         };
       }
       saveMemoryLikesMap(likesMap);
@@ -1136,8 +1159,54 @@ export default function App() {
           break;
         case 'SYNC_MEMORY_LIKES':
           if (msg.payload?.id) {
-            const { id, likes } = msg.payload;
-            setBackendMemories(prev => prev.map(m => m.id === id ? { ...m, likes } : m));
+            const { id, likes, likedBy } = msg.payload;
+            const currentProfile = getStoredUserProfile<{ id?: string; displayName?: string; email?: string }>();
+            const currentMyId = (currentProfile?.id || stateRef.current.couple.userA.id || '').toLowerCase();
+            const currentMyName = (cleanName(localStorage.getItem('lovera_my_nickname')) || stateRef.current.couple.userA.name || currentProfile?.displayName || 'Tôi').trim();
+            const currentMyEmail = (currentProfile?.email || stateRef.current.couple.userA.email || '').toLowerCase();
+
+            const safeLikedBy = Array.isArray(likedBy) ? likedBy : [];
+            const isLikedByMe = safeLikedBy.some(u => isUserMatch(u, currentMyId, currentMyName, currentMyEmail));
+            const calculatedLikes = typeof likes === 'number' ? likes : safeLikedBy.length;
+
+            const likesMap = getMemoryLikesMap();
+            likesMap[id] = {
+              likes: calculatedLikes,
+              isLiked: isLikedByMe,
+              likedBy: safeLikedBy,
+            };
+            saveMemoryLikesMap(likesMap);
+
+            setBackendMemories(prev => prev.map(m => m.id === id ? { ...m, likes: calculatedLikes, isLiked: isLikedByMe, likedBy: safeLikedBy } : m));
+            setMemories(prev => prev.map(m => m.id === id ? { ...m, likes: calculatedLikes, isLiked: isLikedByMe, likedBy: safeLikedBy } : m));
+          }
+          break;
+        case 'SYNC_ALL_MEMORY_LIKES':
+          if (msg.payload && typeof msg.payload === 'object') {
+            const currentProfile = getStoredUserProfile<{ id?: string; displayName?: string; email?: string }>();
+            const currentMyId = (currentProfile?.id || stateRef.current.couple.userA.id || '').toLowerCase();
+            const currentMyName = (cleanName(localStorage.getItem('lovera_my_nickname')) || stateRef.current.couple.userA.name || currentProfile?.displayName || 'Tôi').trim();
+            const currentMyEmail = (currentProfile?.email || stateRef.current.couple.userA.email || '').toLowerCase();
+
+            const likesMap = getMemoryLikesMap();
+            for (const [mid, item] of Object.entries(msg.payload as Record<string, { likes: number; likedBy?: string[] }>)) {
+              if (item) {
+                const safeLikedBy = Array.isArray(item.likedBy) ? item.likedBy : [];
+                const isLikedByMe = safeLikedBy.some(u => isUserMatch(u, currentMyId, currentMyName, currentMyEmail));
+                const calculatedLikes = typeof item.likes === 'number' ? item.likes : safeLikedBy.length;
+                likesMap[mid] = { likes: calculatedLikes, isLiked: isLikedByMe, likedBy: safeLikedBy };
+              }
+            }
+            saveMemoryLikesMap(likesMap);
+
+            setBackendMemories(prev => prev.map(m => {
+              const updated = likesMap[m.id];
+              return updated ? { ...m, likes: updated.likes, isLiked: updated.isLiked, likedBy: updated.likedBy } : m;
+            }));
+            setMemories(prev => prev.map(m => {
+              const updated = likesMap[m.id];
+              return updated ? { ...m, likes: updated.likes, isLiked: updated.isLiked, likedBy: updated.likedBy } : m;
+            }));
           }
           break;
         case 'SYNC_NICKNAMES':
@@ -1288,6 +1357,41 @@ export default function App() {
                   return next;
                 });
               }
+            }
+          }
+
+          if (msg.payload && msg.payload.memoryLikes) {
+            const remoteMemoryLikes = msg.payload.memoryLikes as Record<string, { likes: number; likedBy?: string[] }>;
+            const localLikesMap = getMemoryLikesMap();
+            let changed = false;
+            const currentProfile = getStoredUserProfile<{ id?: string; displayName?: string; email?: string }>();
+            const currentMyId = (currentProfile?.id || stateRef.current.couple.userA.id || '').toLowerCase();
+            const currentMyName = (cleanName(localStorage.getItem('lovera_my_nickname')) || stateRef.current.couple.userA.name || currentProfile?.displayName || 'Tôi').trim();
+            const currentMyEmail = (currentProfile?.email || stateRef.current.couple.userA.email || '').toLowerCase();
+
+            for (const [mid, data] of Object.entries(remoteMemoryLikes)) {
+              if (data && typeof data.likes === 'number') {
+                const existing = localLikesMap[mid];
+                const likedBy = Array.isArray(data.likedBy) ? data.likedBy : (existing?.likedBy || []);
+                const isLikedByMe = likedBy.some(u => isUserMatch(u, currentMyId, currentMyName, currentMyEmail));
+                localLikesMap[mid] = {
+                  likes: data.likes,
+                  isLiked: isLikedByMe,
+                  likedBy,
+                };
+                changed = true;
+              }
+            }
+            if (changed) {
+              saveMemoryLikesMap(localLikesMap);
+              setBackendMemories(prev => prev.map(m => {
+                const updated = localLikesMap[m.id];
+                return updated ? { ...m, likes: updated.likes, isLiked: updated.isLiked, likedBy: updated.likedBy } : m;
+              }));
+              setMemories(prev => prev.map(m => {
+                const updated = localLikesMap[m.id];
+                return updated ? { ...m, likes: updated.likes, isLiked: updated.isLiked, likedBy: updated.likedBy } : m;
+              }));
             }
           }
           break;
@@ -1901,12 +2005,37 @@ export default function App() {
   };
 
   const handleLikeMemory = async (id: string) => {
+    const storedProfile = getStoredUserProfile<{ id?: string; displayName?: string; email?: string }>();
+    const myId = (storedProfile?.id || couple.userA.id || '').toLowerCase();
+    const myName = (cleanName(localStorage.getItem('lovera_my_nickname')) || couple.userA.name || storedProfile?.displayName || 'Tôi').trim();
+    const myEmail = (storedProfile?.email || couple.userA.email || '').toLowerCase();
+    const userIdentifier = myName || myId || 'Tôi';
+
     // 1. Calculate next like state and persist to localStorage
     const likesMap = getMemoryLikesMap();
-    const current = likesMap[id] || { likes: 0, isLiked: false };
-    const nextLiked = !current.isLiked;
-    const nextLikes = nextLiked ? current.likes + 1 : Math.max(0, current.likes - 1);
-    likesMap[id] = { likes: nextLikes, isLiked: nextLiked };
+    const current = likesMap[id] || { likes: 0, isLiked: false, likedBy: [] };
+    const currentLikedBy = Array.isArray(current.likedBy) ? [...current.likedBy] : [];
+
+    // Check if current user already liked
+    const alreadyLikedIndex = currentLikedBy.findIndex(u => isUserMatch(u, myId, myName, myEmail));
+    const nextLikedBy = [...currentLikedBy];
+    let nextLiked = false;
+
+    if (alreadyLikedIndex >= 0) {
+      // User already liked -> unlike
+      nextLikedBy.splice(alreadyLikedIndex, 1);
+      nextLiked = false;
+    } else if (current.isLiked && currentLikedBy.length === 0) {
+      // Legacy case: isLiked was true but likedBy was empty -> unlike
+      nextLiked = false;
+    } else {
+      // User likes
+      nextLikedBy.push(userIdentifier);
+      nextLiked = true;
+    }
+
+    const nextLikes = nextLikedBy.length;
+    likesMap[id] = { likes: nextLikes, isLiked: nextLiked, likedBy: nextLikedBy };
     saveMemoryLikesMap(likesMap);
 
     // 2. Update demo memories
@@ -1916,7 +2045,8 @@ export default function App() {
           return {
             ...m,
             isLiked: nextLiked,
-            likes: nextLikes
+            likes: nextLikes,
+            likedBy: nextLikedBy,
           };
         }
         return m;
@@ -1932,13 +2062,20 @@ export default function App() {
         return {
           ...m,
           isLiked: nextLiked,
-          likes: nextLikes
+          likes: nextLikes,
+          likedBy: nextLikedBy,
         };
       }
       return m;
     }));
 
-    broadcastMessage('SYNC_MEMORY_LIKES', { id, likes: nextLikes, isLiked: nextLiked });
+    broadcastMessage('SYNC_MEMORY_LIKES', {
+      id,
+      likes: nextLikes,
+      likedBy: nextLikedBy,
+      senderId: myId,
+      senderName: userIdentifier,
+    });
     playSound('ping');
   };
 
