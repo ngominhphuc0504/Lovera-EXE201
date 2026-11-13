@@ -435,7 +435,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       return;
     }
 
-    setSaveStatus('Đang kiểm tra kết nối Google Gemini...');
+    setSaveStatus('Đang kiểm tra kết nối Google Gemini 3.5 Flash...');
     try {
       const testRes = await generateGeminiReply(
         'Xin chào bạn',
@@ -445,7 +445,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       );
       if (testRes.isGeminiPowered) {
         setGeminiActive(true);
-        setSaveStatus('✅ Đã kết nối Google Gemini thành công! ✨');
+        setSaveStatus('✅ Đã kết nối Google Gemini 3.5 Flash thành công! ✨');
         playSound('chime');
         setTimeout(() => {
           setIsKeyModalOpen(false);
@@ -453,7 +453,12 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
         }, 1200);
       } else {
         setGeminiActive(false);
-        setSaveStatus('⚠️ Không thể xác thực key. Vui lòng lấy API Key bắt đầu bằng AIzaSy... tại Google AI Studio.');
+        const errDetail = testRes.errorMessage || '';
+        if (errDetail.includes('401') || errDetail.includes('UNAUTHENTICATED') || errDetail.includes('API key not valid')) {
+          setSaveStatus('⚠️ Google từ chối (Lỗi 401 Unauthorized): Key không hợp lệ. Vui lòng lấy mã bắt đầu bằng AIzaSy... tại Google AI Studio.');
+        } else {
+          setSaveStatus('⚠️ Không thể xác thực Gemini 3.5 Flash: ' + (errDetail || 'Vui lòng kiểm tra lại API Key'));
+        }
       }
     } catch (err: any) {
       setGeminiActive(false);
@@ -714,10 +719,10 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                     ? 'bg-gradient-to-r from-purple-50 via-pink-50 to-rose-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
                     : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                 }`}
-                title={geminiActive ? "Đang sử dụng Google Gemini AI" : (isBackendConnected ? "Đã kết nối Backend AI" : "Đang sử dụng Trợ lý Tình yêu Thông minh")}
+                title={geminiActive ? "Đang sử dụng Google Gemini 3.5 Flash" : (isBackendConnected ? "Đã kết nối Lovera Backend AI (Gemini 3.5 Flash)" : "Đang sử dụng Trợ lý Tình yêu Thông minh")}
               >
                 <Sparkles className={`w-2.5 h-2.5 ${geminiActive || isBackendConnected ? 'text-purple-600' : 'text-emerald-500'}`} />
-                <span>{geminiActive ? 'Gemini AI ✨' : (isBackendConnected ? 'Backend AI' : 'Trợ lý AI 💕')}</span>
+                <span>{geminiActive ? 'Gemini 3.5 Flash ✨' : (isBackendConnected ? 'Backend AI (3.5 Flash)' : 'Trợ lý AI 💕')}</span>
               </button>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
@@ -803,7 +808,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                   {!isUser && msg.isGemini && (
                     <div className="inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-100 via-pink-100 to-rose-100 text-purple-800 text-[10px] font-bold border border-purple-200/60 shadow-2xs">
                       <Sparkles className="w-3 h-3 text-purple-600 animate-spin [animation-duration:4s]" />
-                      <span>{isBackendConnected ? 'Lovera AI Assistant' : 'Gemini Flash'}</span>
+                      <span>{isBackendConnected ? 'Lovera AI (Gemini 3.5 Flash)' : (geminiActive ? 'Gemini 3.5 Flash ✨' : 'Lovera AI Assistant')}</span>
                     </div>
                   )}
 
@@ -991,8 +996,8 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base leading-snug">Cấu Hình Google Gemini AI</h3>
-                  <p className="text-white/80 text-xs">Trợ lý tình yêu thông minh thế hệ mới</p>
+                  <h3 className="font-bold text-base leading-snug">Cấu Hình Google Gemini 3.5 Flash</h3>
+                  <p className="text-white/80 text-xs">Mô hình AI mới nhất kết nối đồng bộ cùng Lovera</p>
                 </div>
               </div>
               <button
@@ -1010,31 +1015,31 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                 <ShieldCheck className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="font-semibold text-purple-950">Lovera AI & Gemini</p>
+                    <p className="font-semibold text-purple-950">Lovera AI & Gemini 3.5 Flash</p>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
                       isBackendConnected 
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
                         : 'bg-stone-100 text-stone-600 border-stone-200'
                     }`}>
-                      {isBackendConnected ? 'Backend AI Đang Hoạt Động' : 'Client Mode'}
+                      {isBackendConnected ? 'Backend AI Đang Hoạt Động' : 'Client Mode (3.5 Flash)'}
                     </span>
                   </div>
                   <p className="text-stone-600 text-[11px] leading-relaxed">
-                    Khi đã đăng nhập, hệ thống tự động kết nối với AI Backend của Lovera. Bạn cũng có thể thiết lập thêm Gemini API Key riêng để chạy trực tiếp từ trình duyệt khi cần.
+                    Hệ thống hoạt động với mô hình <b>Gemini 3.5 Flash</b> (đã gỡ bỏ toàn bộ 1.5, 2.0, 2.5). Khi đăng nhập, ứng dụng kết nối trực tiếp với Lovera Backend AI hoặc sử dụng Google AI Studio API Key cá nhân.
                   </p>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-stone-800 mb-1.5">
-                  Google Gemini API Key (Tùy chọn)
+                  Google Gemini API Key (Bắt đầu bằng AIzaSy...)
                 </label>
                 <div className="relative">
                   <input
                     type={showKeyText ? 'text' : 'password'}
                     value={apiKeyInput}
                     onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder="Dán AIzaSy..."
+                    placeholder="Dán mã API Key bắt đầu bằng AIzaSy..."
                     className="w-full bg-stone-50 border border-stone-200 rounded-xl px-3.5 py-2.5 text-xs text-stone-800 pr-10 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:bg-white font-mono"
                   />
                   <button
@@ -1045,6 +1050,9 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                     {showKeyText ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                <p className="text-[10px] text-amber-700 mt-1 bg-amber-50/80 px-2 py-1 rounded-lg border border-amber-200/60">
+                  💡 Lưu ý: Key phải được tạo từ Google AI Studio (bắt đầu bằng <code>AIzaSy...</code>). Không dùng token đăng nhập tạm thời (AQ.../Bearer...).
+                </p>
               </div>
 
               <div className="text-[11px] text-stone-500 flex items-center justify-between">

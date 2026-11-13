@@ -4,6 +4,8 @@ export interface GeminiResponse {
   text: string;
   suggestions: string[];
   isGeminiPowered: boolean;
+  errorMessage?: string;
+  modelUsed?: string;
 }
 
 const STORAGE_KEY = 'lovera_gemini_api_key';
@@ -110,12 +112,10 @@ Cách viết tin nhắn làm lành chân thành`;
       validContents.push({ role: 'user', parts: [{ text: userQuery }] });
     }
 
-    // Thử lần lượt các mô hình Gemini chính thức từ Google qua REST API
+    // Kết nối trực tiếp mô hình Gemini 3.5 Flash theo chuẩn hệ thống Lovera
+    // Đã loại bỏ hoàn toàn các mô hình cũ 1.5, 2.0, 2.5 theo yêu cầu
     const modelsToTry = [
-      'gemini-1.5-flash',
-      'gemini-2.0-flash',
-      'gemini-2.5-flash',
-      'gemini-1.5-pro'
+      'gemini-3.5-flash'
     ];
     let responseText = '';
     let lastError: unknown = null;
@@ -138,45 +138,52 @@ Cách viết tin nhắn làm lành chân thành`;
           };
         }
 
-        // Thử cả 2 dạng: API Key (?key=...) và OAuth Token (Authorization: Bearer ...)
-        const requestAttempts: Array<{ url: string; headers: Record<string, string> }> = isBearer
-          ? [
-              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cleanToken}` } },
-              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanToken)}`, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cleanToken } }
-            ]
-          : [
-              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanToken)}`, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cleanToken } },
-              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cleanToken}` } }
-            ];
+        // Tùy theo định dạng token: API key chuẩn (AIzaSy...) hay OAuth Bearer token
+        const url = isBearer
+          ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+          : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanToken)}`;
 
-        for (const req of requestAttempts) {
-          try {
-            const res = await fetch(req.url, {
-              method: 'POST',
-              headers: req.headers,
-              body: JSON.stringify(body)
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              const textCandidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-              if (textCandidate && typeof textCandidate === 'string' && textCandidate.trim()) {
-                responseText = textCandidate;
-                break;
-              }
-            } else {
-              const errText = await res.text();
-              console.warn(`Gemini ${model} call failed (${res.status}):`, errText);
-            }
-          } catch (fetchErr) {
-            console.warn(`Gemini fetch attempt failed:`, fetchErr);
-          }
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json'
+        };
+        if (isBearer) {
+          headers['Authorization'] = `Bearer ${cleanToken}`;
+        } else {
+          headers['x-goog-api-key'] = cleanToken;
         }
 
-        if (responseText) break;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body)
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          const textCandidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (textCandidate && typeof textCandidate === 'string' && textCandidate.trim()) {
+            responseText = textCandidate;
+            break;
+          }
+        } else {
+          const errText = await res.text();
+          let parsedMsg = '';
+          try {
+            const errJson = JSON.parse(errText);
+            parsedMsg = errJson?.error?.message || '';
+          } catch {}
+          const errorDetail = parsedMsg || errText;
+          lastError = new Error(`Google API ${res.status}: ${errorDetail}`);
+          console.warn(`Gemini ${model} call failed (${res.status}):`, errorDetail);
+
+          // Nếu lỗi xác thực 401 hoặc 403, ngừng ngay không thử lại để tránh gửi yêu cầu rác
+          if (res.status === 401 || res.status === 403) {
+            break;
+          }
+        }
       } catch (err) {
         lastError = err;
-        console.warn(`Gemini model ${model} call failed, trying next:`, err);
+        console.warn(`Gemini model ${model} fetch failed:`, err);
       }
     }
 
@@ -212,14 +219,16 @@ Cách viết tin nhắn làm lành chân thành`;
       text: cleanText,
       suggestions,
       isGeminiPowered: true,
+      modelUsed: 'gemini-3.5-flash',
     };
-  } catch (error) {
+  } catch (error: any) {
     console.warn('Gemini API call failed, falling back to local engine:', error);
     const fallback = fallbackFn(userQuery);
     return {
       text: fallback.text,
       suggestions: fallback.suggestions,
       isGeminiPowered: false,
+      errorMessage: error?.message || 'Không thể kết nối với Gemini 3.5 Flash',
     };
   }
 }
