@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import { CoupleData } from '../../types';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
-import { compressImageFile } from '../../utils/syncManager';
+import { AvatarUpload } from '../common/AvatarUpload';
+import { AvatarActionModal } from '../common/AvatarActionModal';
+import { isGuid } from '../../utils/userDirectory';
 
 interface ProfileScreenProps {
   couple: CoupleData;
@@ -29,7 +31,7 @@ interface ProfileScreenProps {
   onResetDemoFlow: (screen: 'welcome' | 'login' | 'register' | 'pairing' | 'splash' | 'onboarding') => void;
   onNavigateToPairing?: () => void;
   onUpdateUserName?: (newName: string) => void;
-  onUpdateAvatar?: (newAvatarUrl: string, file?: File) => void;
+  onUpdateAvatar?: (newAvatarUrl: string, file: File) => Promise<void>;
 }
 
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({
@@ -47,71 +49,95 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const { userA, userB, startDate } = couple;
   const totalDays = calculateTotalDays(startDate);
 
-  const [nickA, setNickA] = useState(userA.name);
-  const [nickB, setNickB] = useState(userB.name);
+  const [nickA, setNickA] = useState(() => (userA.name && !isGuid(userA.name) && userA.name !== 'Người Thương') ? userA.name : '');
+  const [nickB, setNickB] = useState(() => (userB.name && !isGuid(userB.name) && userB.name !== 'Người Thương') ? userB.name : '');
+  const [avatarModal, setAvatarModal] = useState<{
+    isOpen: boolean;
+    avatarUrl: string;
+    userName: string;
+    isOwnAvatar: boolean;
+  }>({
+    isOpen: false,
+    avatarUrl: '',
+    userName: '',
+    isOwnAvatar: true,
+  });
+
+  React.useEffect(() => {
+    if (userA.name && !isGuid(userA.name) && userA.name !== 'Người Thương') {
+      setNickA(userA.name);
+    }
+  }, [userA.name]);
+
+  React.useEffect(() => {
+    if (userB.name && !isGuid(userB.name) && userB.name !== 'Người Thương') {
+      setNickB(userB.name);
+    }
+  }, [userB.name]);
   const [savedToast, setSavedToast] = useState('');
   const [showUnpairConfirm, setShowUnpairConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 15MB.');
+
+  const [isSubmittingNicknames, setIsSubmittingNicknames] = useState(false);
+  const [isSubmittingPersonalName, setIsSubmittingPersonalName] = useState(false);
+
+  const handleSaveNicknames = async () => {
+    if (isSubmittingNicknames) return;
+    const cleanA = nickA.trim();
+    const cleanB = nickB.trim();
+    if (!cleanA || isGuid(cleanA)) {
+      setSavedToast('Vui lòng nhập biệt danh hợp lệ cho bạn.');
+      playSound('error');
+      setTimeout(() => setSavedToast(''), 2500);
       return;
     }
-
-    try {
-      const compressed = await compressImageFile(file, 300, 0.85);
-      onUpdateAvatar?.(compressed, file);
-      playSound('success');
-      setSavedToast('Đã đổi và đồng bộ avatar thành công!');
+    if (!cleanB || isGuid(cleanB)) {
+      setSavedToast('Vui lòng nhập biệt danh hợp lệ cho người ấy.');
+      playSound('error');
       setTimeout(() => setSavedToast(''), 2500);
-    } catch {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        if (base64) {
-          onUpdateAvatar?.(base64, file);
-          playSound('success');
-          setSavedToast('Đã đổi và đồng bộ avatar thành công!');
-          setTimeout(() => setSavedToast(''), 2500);
-        }
-      };
-      reader.readAsDataURL(file);
+      return;
+    }
+    setIsSubmittingNicknames(true);
+    try {
+      await onUpdateNicknames(cleanA, cleanB);
+      setSavedToast('Đã lưu và đồng bộ biệt danh mới!');
+      playSound('success');
+    } catch (err: any) {
+      setSavedToast(err?.message || 'Không thể lưu biệt danh.');
+      playSound('error');
+    } finally {
+      setIsSubmittingNicknames(false);
+      setTimeout(() => setSavedToast(''), 2500);
     }
   };
 
-  const handleSaveNicknames = () => {
-    onUpdateNicknames(nickA, nickB);
-    setSavedToast('Đã lưu biệt danh mới của hai bạn!');
-    playSound('success');
-    setTimeout(() => setSavedToast(''), 2500);
-  };
-
-  const handleSavePersonalName = () => {
-    if (onUpdateUserName) {
-      onUpdateUserName(nickA);
-    } else {
-      onUpdateNicknames(nickA, userB.name);
+  const handleSavePersonalName = async () => {
+    if (isSubmittingPersonalName) return;
+    setIsSubmittingPersonalName(true);
+    try {
+      if (onUpdateUserName) {
+        await onUpdateUserName(nickA);
+      } else {
+        await onUpdateNicknames(nickA, userB.name);
+      }
+      setSavedToast('Đã lưu tên hiển thị của bạn!');
+      playSound('success');
+    } catch (err: any) {
+      setSavedToast(err?.message || 'Không thể lưu tên.');
+      playSound('error');
+    } finally {
+      setIsSubmittingPersonalName(false);
+      setTimeout(() => setSavedToast(''), 2500);
     }
-    setSavedToast('Đã lưu tên hiển thị của bạn!');
-    playSound('success');
-    setTimeout(() => setSavedToast(''), 2500);
   };
 
   return (
     <div className="space-y-4 pb-28 pt-3 text-stone-800 select-none">
       
       {/* Hidden file input for Alex's avatar */}
-      <input 
-        ref={fileInputRef} 
-        type="file" 
-        accept="image/*" 
-        className="hidden" 
-        onChange={handleAvatarChange} 
-      />
+      <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
 
       {/* Screen Header */}
       <div className="mx-4 flex flex-wrap items-center gap-2">
@@ -152,9 +178,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           <div className="flex items-center justify-center -space-x-3 mb-2.5">
             {/* Alex Avatar with Camera Icon Button */}
             <div 
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setAvatarModal({
+                isOpen: true,
+                avatarUrl: userA.avatar,
+                userName: userA.name,
+                isOwnAvatar: true,
+              })}
               className="relative cursor-pointer group select-none"
-              title="Nhấn để đổi ảnh đại diện của Alex"
+              title="Tùy chọn ảnh đại diện"
+              role="button"
             >
               <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm ring-2 ring-white/30 group-hover:scale-105 transition-transform">
                 <img
@@ -171,11 +203,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  fileInputRef.current?.click();
+                  setAvatarModal({
+                    isOpen: true,
+                    avatarUrl: userA.avatar,
+                    userName: userA.name,
+                    isOwnAvatar: true,
+                  });
                 }}
-                className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white text-rose-600 shadow-md border border-rose-100 flex items-center justify-center group-hover:scale-110 active:scale-95 transition-transform"
-                title="Đổi ảnh đại diện Alex"
-                aria-label="Đổi ảnh đại diện Alex"
+                className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white text-rose-600 shadow-md border border-rose-100 flex items-center justify-center group-hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                title="Tùy chọn ảnh đại diện"
+                aria-label="Tùy chọn ảnh đại diện"
               >
                 <Camera className="w-3 h-3 text-rose-600" />
               </button>
@@ -185,7 +222,17 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               <Heart className="w-4 h-4 fill-rose-500" />
             </div>
 
-            <div className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm">
+            <div 
+              onClick={() => setAvatarModal({
+                isOpen: true,
+                avatarUrl: userB.avatar,
+                userName: (!userB.name || isGuid(userB.name) || userB.name === 'Người Thương') ? (nickB || 'Người Thương') : userB.name,
+                isOwnAvatar: false,
+              })}
+              className="w-14 h-14 rounded-full overflow-hidden border-2 border-white shadow-sm cursor-pointer group hover:scale-105 transition-transform"
+              title="Xem ảnh đại diện đối phương"
+              role="button"
+            >
               <img
                 src={userB.avatar}
                 alt={userB.name}
@@ -199,7 +246,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
 
           <h3 className="font-serif-romantic text-lg font-bold">
-            {userA.name} & {userB.name}
+            {userA.name} & {(!userB.name || isGuid(userB.name) || userB.name === 'Người Thương') ? (nickB || 'Người Thương') : userB.name}
           </h3>
           <p className="text-xs text-rose-100 mt-0.5 font-medium">
             Bên nhau {totalDays} Ngày · Từ {formatVNDate(startDate)}
@@ -209,9 +256,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         /* Solo Personal Profile Hero Card (Ẩn hoàn toàn ảnh người thứ hai) */
         <div className="mx-4 bg-gradient-to-tr from-rose-500 via-pink-500 to-purple-600 rounded-3xl p-6 text-white shadow-md text-center relative overflow-hidden">
           <div 
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setAvatarModal({
+              isOpen: true,
+              avatarUrl: userA.avatar,
+              userName: userA.name,
+              isOwnAvatar: true,
+            })}
             className="relative inline-block mx-auto mb-3 cursor-pointer group select-none"
-            title="Nhấn để đổi ảnh đại diện của bạn"
+            title="Tùy chọn ảnh đại diện"
+            role="button"
           >
             <div className="w-20 h-20 rounded-full overflow-hidden border-3 border-white shadow-md mx-auto ring-2 ring-white/60 group-hover:scale-105 transition-transform">
               <img src={userA.avatar} alt={userA.name} className="w-full h-full object-cover" />
@@ -220,11 +273,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                fileInputRef.current?.click();
+                setAvatarModal({
+                  isOpen: true,
+                  avatarUrl: userA.avatar,
+                  userName: userA.name,
+                  isOwnAvatar: true,
+                });
               }}
-              className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-white text-rose-600 shadow-md border border-rose-100 flex items-center justify-center group-hover:scale-110 active:scale-95 transition-transform"
-              title="Đổi ảnh đại diện"
-              aria-label="Đổi ảnh đại diện"
+              className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-white text-rose-600 shadow-md border border-rose-100 flex items-center justify-center group-hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+              title="Tùy chọn ảnh đại diện"
+              aria-label="Tùy chọn ảnh đại diện"
             >
               <Camera className="w-3.5 h-3.5 text-rose-600" />
             </button>
@@ -307,7 +365,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   type="text"
                   value={nickA}
                   onChange={(e) => setNickA(e.target.value)}
-                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveNicknames(); }}
+                  placeholder="Biệt danh của bạn..."
+                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 placeholder:text-stone-400 placeholder:font-normal"
                 />
               </div>
               <div>
@@ -318,17 +378,21 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   type="text"
                   value={nickB}
                   onChange={(e) => setNickB(e.target.value)}
-                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveNicknames(); }}
+                  placeholder="Biệt danh người ấy..."
+                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 placeholder:text-stone-400 placeholder:font-normal"
                 />
               </div>
             </div>
 
             <button
+              type="button"
+              disabled={isSubmittingNicknames}
               onClick={handleSaveNicknames}
-              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Edit2 className="w-3.5 h-3.5" />
-              <span>Lưu Biệt Danh Mới</span>
+              <span>{isSubmittingNicknames ? 'Đang lưu...' : 'Lưu Biệt Danh Mới'}</span>
             </button>
           </div>
 
@@ -387,11 +451,13 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
             </div>
 
             <button
+              type="button"
+              disabled={isSubmittingPersonalName}
               onClick={handleSavePersonalName}
-              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5"
+              className="w-full min-h-[42px] py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs rounded-xl border border-rose-200 transition-colors active:scale-95 flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Edit2 className="w-3.5 h-3.5" />
-              <span>Lưu Tên Hiển Thị</span>
+              <span>{isSubmittingPersonalName ? 'Đang lưu...' : 'Lưu Tên Hiển Thị'}</span>
             </button>
           </div>
 
@@ -497,6 +563,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       <div className="text-center text-[10px] text-stone-400 pt-1">
         LOVERA · Couple Relationship App · MVP Build 2026
       </div>
+
+      {/* Avatar Action Modal */}
+      <AvatarActionModal
+        isOpen={avatarModal.isOpen}
+        onClose={() => setAvatarModal(prev => ({ ...prev, isOpen: false }))}
+        avatarUrl={avatarModal.avatarUrl}
+        userName={avatarModal.userName}
+        isOwnAvatar={avatarModal.isOwnAvatar}
+        onEditAvatar={() => fileInputRef.current?.click()}
+      />
 
     </div>
   );

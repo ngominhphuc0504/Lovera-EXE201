@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Heart, Lock, Mail, User as UserIcon, ArrowLeft, Eye, EyeOff, AlertCircle, UserPlus, CheckCircle2, Shield, Sparkles } from 'lucide-react';
+import loveraLogo from '../../assets/images/lovera_logo.png';
 import { playSound } from '../../utils/audio';
 import { authService } from '../../services/authService';
 import { VerifyOtpModal } from '../modals/VerifyOtpModal';
@@ -122,7 +123,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
   const handleBypassToDemo = () => {
     playSound('chime');
     setIsOtpModalOpen(false);
-    onRegisterSuccess(email.trim() || 'user@lovera.app', name.trim() || 'Alex', true);
+    onRegisterSuccess(email.trim() || 'user@lovera.app', name.trim() || 'Người Thương', true);
   };
 
   return (
@@ -130,39 +131,35 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
       
       {/* Top Navigation */}
       <div>
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center justify-between pt-1">
           <button
             onClick={() => {
               playSound('click');
               onBackToWelcome();
             }}
-            className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
+            className="w-9 h-9 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
             title="Quay lại"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
-              LOVERA AUTH API
-            </span>
-          </div>
-
-          <div className="w-10"></div>
+          <div className="w-9"></div>
         </div>
 
-        {/* Title */}
-        <div className="text-center mt-3 mb-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-500 to-purple-600 text-white mb-2 shadow-sm">
-            <UserPlus className="w-6 h-6" />
+        {/* Brand Header & Logo */}
+        <div className="text-center mt-0.5 mb-2">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 via-rose-600 to-purple-600 text-white shadow-md shadow-rose-500/25 mb-1.5 animate-soft-float">
+            <Heart className="w-7 h-7 fill-white animate-heart-pulse" />
           </div>
-          <h2 className="font-serif-romantic text-2xl font-bold text-stone-900">
+          <h1 className="font-serif-romantic text-2xl font-bold tracking-tight text-stone-900 leading-tight">
+            LOVERA
+          </h1>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-rose-500 mt-0.5">
+            COUPLE RELATIONSHIP APP
+          </p>
+          <h2 className="font-serif-romantic text-lg font-bold text-stone-800 mt-2">
             Tạo Tài Khoản Mới
           </h2>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Kết nối API Backend thực tế .NET 8 (Brevo OTP)
-          </p>
         </div>
       </div>
 
@@ -202,7 +199,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
                 setName(e.target.value);
                 if (error) setError('');
               }}
-              placeholder="Ví dụ: Alex"
+              placeholder="Ví dụ: Minh Phúc"
               className="w-full text-xs font-medium pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-2xs"
             />
           </div>
@@ -222,7 +219,7 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
                 setEmail(e.target.value);
                 if (error) setError('');
               }}
-              placeholder="alex@example.com"
+              placeholder="email@example.com"
               className="w-full text-xs font-medium pl-10 pr-4 py-2.5 bg-white rounded-2xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-2xs"
             />
           </div>

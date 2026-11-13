@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Heart, Lock, Mail, ArrowLeft, Eye, EyeOff, AlertCircle, LogIn, CheckCircle2, Shield, Sparkles } from 'lucide-react';
+import loveraLogo from '../../assets/images/lovera_logo.png';
 import { playSound } from '../../utils/audio';
 import { authService } from '../../services/authService';
 import { coupleService } from '../../services/coupleService';
@@ -101,28 +102,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
   };
 
-  // Quick preset helper for tester/demo
-  const handleQuickPreset = (presetEmail: string, presetPass: string, alreadyPaired: boolean) => {
-    setEmail(presetEmail);
-    setPassword(presetPass);
-    setError('');
-    playSound('chime');
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      playSound('success');
-      const name = presetEmail.startsWith('alex') ? 'Alex' : 'Sam';
-      onLoginSuccess(presetEmail, name, alreadyPaired, true);
-    }, 400);
-  };
-
   // Continue demo/offline mode
   const handleBypassToDemo = () => {
     playSound('chime');
     const isPaired = email.toLowerCase().includes('paired');
-    const name = email.split('@')[0] || 'Alex';
+    const name = email.split('@')[0] || 'User';
     const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
-    onLoginSuccess(email.trim() || 'alex@lovera.app', capitalizedName, isPaired, true);
+    onLoginSuccess(email.trim() || 'user@lovera.app', capitalizedName, isPaired, true);
   };
 
   return (
@@ -130,39 +116,35 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       
       {/* Top Navigation */}
       <div>
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center justify-between pt-1">
           <button
             onClick={() => {
               playSound('click');
               onBackToWelcome();
             }}
-            className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
+            className="w-9 h-9 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
             title="Quay lại"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
-              LOVERA AUTH API
-            </span>
-          </div>
-
-          <div className="w-10"></div>
+          <div className="w-9"></div>
         </div>
 
-        {/* Title */}
-        <div className="text-center mt-4 mb-3">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mb-2 shadow-2xs">
-            <LogIn className="w-6 h-6" />
+        {/* Brand Header & Logo */}
+        <div className="text-center mt-0.5 mb-2">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 via-rose-600 to-purple-600 text-white shadow-md shadow-rose-500/25 mb-1.5 animate-soft-float">
+            <Heart className="w-7 h-7 fill-white animate-heart-pulse" />
           </div>
-          <h2 className="font-serif-romantic text-2xl font-bold text-stone-900">
+          <h1 className="font-serif-romantic text-2xl font-bold tracking-tight text-stone-900 leading-tight">
+            LOVERA
+          </h1>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-rose-500 mt-0.5">
+            COUPLE RELATIONSHIP APP
+          </p>
+          <h2 className="font-serif-romantic text-lg font-bold text-stone-800 mt-2">
             Đăng Nhập
           </h2>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Xác thực qua JWT Token & Backend .NET 8
-          </p>
         </div>
       </div>
 
@@ -202,7 +184,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 setEmail(e.target.value);
                 if (error) setError('');
               }}
-              placeholder="alex@lovera.app hoặc admin@lovera.app"
+              placeholder="email@example.com hoặc admin@lovera.app"
               className="w-full text-xs font-medium pl-10 pr-4 py-3 bg-white rounded-2xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-2xs"
             />
           </div>
@@ -252,33 +234,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </>
           )}
         </button>
-
-        {/* Quick Test Demo Presets */}
-        <div className="pt-2">
-          <p className="text-[10px] text-stone-400 text-center font-medium mb-1.5">
-            Lối tắt kiểm thử nhanh cho Tester:
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickPreset('alex.new@lovera.app', 'password123', false)}
-              className="p-2 bg-white/90 hover:bg-rose-50 rounded-xl border border-rose-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
-            >
-              <span className="text-rose-600 font-bold">1. Alex (Chưa kết nối)</span>
-              <span className="text-[9px] text-stone-400">→ Chuyển đến Pairing</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickPreset('alex.paired@lovera.app', 'password123', true)}
-              className="p-2 bg-white/90 hover:bg-emerald-50 rounded-xl border border-emerald-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
-            >
-              <span className="text-emerald-700 font-bold">2. Alex (Đã ghép đôi)</span>
-              <span className="text-[9px] text-stone-400">→ Vào thẳng Couple Home</span>
-            </button>
-
-            
-          </div>
-        </div>
       </form>
 
       {/* Footer Switcher */}

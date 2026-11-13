@@ -67,6 +67,14 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   onNavigateToHome,
 }) => {
   const { userA, userB, startDate } = couple;
+  const authorAvatar = (memory: MemoryItem) => {
+    const creator = memory.creatorUserId?.toLowerCase();
+    if (creator === userA.id?.toLowerCase() || memory.isMyMemory === true) return userA.avatar;
+    if (creator === userB.id?.toLowerCase() || memory.isMyMemory === false) return userB.avatar;
+    if (!creator && memory.authorName === userA.name) return userA.avatar;
+    if (!creator && memory.authorName === userB.name) return userB.avatar;
+    return memory.authorAvatar;
+  };
   const totalDays = calculateTotalDays(startDate);
 
   // View state
@@ -92,6 +100,14 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   const [imageReady, setImageReady] = useState(false);
   const submitLock = useRef(false);
   useEffect(() => () => { if (newImageUrl) URL.revokeObjectURL(newImageUrl); }, [newImageUrl]);
+  useEffect(() => {
+    if (selectedMemory) {
+      const fresh = memories.find(m => m.id === selectedMemory.id);
+      if (fresh && (fresh.likes !== selectedMemory.likes || fresh.isLiked !== selectedMemory.isLiked || fresh.likedBy !== selectedMemory.likedBy)) {
+        setSelectedMemory(fresh);
+      }
+    }
+  }, [memories]);
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [submissionError, setSubmissionError] = useState('');
   const [isSubmittingMemory, setIsSubmittingMemory] = useState(false);
@@ -463,17 +479,19 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                   {mem.tag}
                 </span>
 
-                {/* Like Button on Image */}
+                {/* Like Button on Image - CỦA AI NGƯỜI NẤY TIM */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     playSound('ping');
                     onLikeMemory(mem.id);
                   }}
-                  className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-transform active:scale-90 ${
-                    mem.isLiked ? 'bg-rose-500 text-white shadow-xs' : 'bg-black/30 hover:bg-black/40 text-white'
+                  className={`absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90 ${
+                    mem.isLiked
+                      ? 'bg-rose-500 text-white shadow-xs'
+                      : 'bg-black/30 hover:bg-black/40 text-white'
                   }`}
-                  title="Yêu thích ảnh này"
+                  title={mem.isLiked ? 'Bỏ yêu thích' : 'Yêu thích ảnh này'}
                 >
                   <Heart className={`w-3.5 h-3.5 ${mem.isLiked ? 'fill-white' : ''}`} />
                 </button>
@@ -493,15 +511,18 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 <div className="flex items-center justify-between pt-1 border-t border-stone-100 text-[10px] text-stone-400">
                   <div className="flex items-center gap-1.5 truncate">
                     <img
-                      src={mem.authorAvatar}
+                      src={authorAvatar(mem)}
                       alt={mem.authorName}
                       className="w-4 h-4 rounded-full object-cover ring-1 ring-stone-200 shrink-0"
                     />
                     <span className="truncate">{mem.authorName}</span>
                   </div>
-                  <span className="flex items-center gap-0.5 text-rose-500 font-semibold shrink-0">
-                    <Heart className="w-2.5 h-2.5 fill-rose-500" />
-                    <span>{mem.likes}</span>
+                  <span
+                    className="flex items-center gap-0.5 text-rose-500 font-semibold shrink-0"
+                    title={(Array.isArray(mem.likedBy) && mem.likedBy.length > 0) ? `${mem.likedBy.join(' & ')} đã thả tim` : undefined}
+                  >
+                    <Heart className={`w-2.5 h-2.5 ${(mem.likes && mem.likes > 0) ? 'fill-rose-500' : 'text-stone-400'}`} />
+                    <span>{mem.likes || 0}</span>
                   </span>
                 </div>
               </div>
@@ -531,7 +552,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <img
-                      src={mem.authorAvatar}
+                      src={authorAvatar(mem)}
                       alt={mem.authorName}
                       className="w-7 h-7 rounded-full object-cover ring-2 ring-rose-300"
                     />
@@ -586,9 +607,14 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold transition-colors ${
                       mem.isLiked ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-stone-50 text-stone-600 hover:bg-stone-100'
                     }`}
+                    title={
+                      Array.isArray(mem.likedBy) && mem.likedBy.length > 0
+                        ? `${mem.likedBy.join(' & ')} đã thả tim`
+                        : (mem.isLiked ? 'Bỏ yêu thích' : 'Yêu thích')
+                    }
                   >
                     <Heart className={`w-3.5 h-3.5 ${mem.isLiked ? 'fill-rose-500 text-rose-500' : 'text-stone-400'}`} />
-                    <span>{mem.likes} Yêu thích</span>
+                    <span>{mem.likes || 0} Yêu thích</span>
                   </button>
 
                   <div className="flex items-center gap-1">
@@ -792,7 +818,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <img
-                    src={selectedMemory.authorAvatar}
+                    src={authorAvatar(selectedMemory)}
                     alt={selectedMemory.authorName}
                     className="w-8 h-8 rounded-full object-cover ring-2 ring-rose-400"
                   />
@@ -816,18 +842,28 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                   onClick={() => {
                     playSound('ping');
                     onLikeMemory(selectedMemory.id);
-                    setSelectedMemory(prev => prev ? {
-                      ...prev,
-                      likes: prev.isLiked ? Math.max(0, prev.likes - 1) : prev.likes + 1,
-                      isLiked: !prev.isLiked
-                    } : null);
+                    setSelectedMemory(prev => {
+                      if (!prev) return null;
+                      const nextLiked = !prev.isLiked;
+                      const nextLikes = nextLiked ? prev.likes + 1 : Math.max(0, prev.likes - 1);
+                      return {
+                        ...prev,
+                        likes: nextLikes,
+                        isLiked: nextLiked,
+                      };
+                    });
                   }}
                   className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold transition-transform active:scale-95 cursor-pointer ${
                     selectedMemory.isLiked ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-stone-100 text-stone-600 hover:bg-rose-50'
                   }`}
+                  title={
+                    Array.isArray(selectedMemory.likedBy) && selectedMemory.likedBy.length > 0
+                      ? `${selectedMemory.likedBy.join(' & ')} đã thả tim`
+                      : (selectedMemory.isLiked ? 'Bỏ yêu thích' : 'Yêu thích')
+                  }
                 >
-                  <Heart className={`w-3.5 h-3.5 ${selectedMemory.isLiked ? 'fill-rose-500 text-rose-500' : ''}`} />
-                  <span>{selectedMemory.likes} Yêu thích</span>
+                  <Heart className={`w-3.5 h-3.5 ${selectedMemory.isLiked ? 'fill-rose-500 text-rose-500' : 'text-stone-400'}`} />
+                  <span>{selectedMemory.likes || 0} Yêu thích</span>
                 </button>
               </div>
 

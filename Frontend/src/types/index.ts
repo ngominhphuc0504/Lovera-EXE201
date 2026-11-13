@@ -79,6 +79,7 @@ export interface MemoryItem {
   isMyMemory?: boolean;
   likes: number;
   isLiked?: boolean;
+  likedBy?: string[];
   createdAt: string;
 }
 
