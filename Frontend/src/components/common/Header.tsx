@@ -7,12 +7,14 @@ interface HeaderProps {
   unreadNotifications: number;
   onOpenNotifications: () => void;
   onOpenSettings?: () => void;
+  onAvatarClick?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentUser,
   unreadNotifications,
   onOpenNotifications,
+  onAvatarClick,
 }) => {
   // Determine greeting & icon by time of day
   const hour = new Date().getHours();
@@ -23,8 +25,13 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="bg-white/90 backdrop-blur-md border-b border-rose-100/80 px-4 py-2 flex items-center justify-between sticky top-0 z-30 shadow-2xs">
       {/* Brand & User Greeting */}
       <div className="flex items-center gap-2.5 min-w-0 flex-1">
-        <div className="relative shrink-0">
-          <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-rose-300/80 ring-offset-1 ring-offset-white shadow-xs">
+        <div 
+          onClick={onAvatarClick}
+          className={`relative shrink-0 ${onAvatarClick ? 'cursor-pointer group select-none active:scale-95 transition-transform' : ''}`}
+          title={onAvatarClick ? "Tùy chọn ảnh đại diện" : undefined}
+          role={onAvatarClick ? "button" : undefined}
+        >
+          <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-rose-300/80 ring-offset-1 ring-offset-white shadow-xs group-hover:scale-105 transition-transform">
             <img
               src={currentUser.avatar}
               alt={currentUser.name}

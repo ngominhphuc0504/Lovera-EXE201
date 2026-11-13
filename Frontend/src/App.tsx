@@ -29,6 +29,8 @@ import { ProfileScreen } from './components/screens/ProfileScreen';
 import { StatusModal } from './components/modals/StatusModal';
 import { LoveDayModal } from './components/modals/LoveDayModal';
 import { NotificationsModal } from './components/modals/NotificationsModal';
+import { AvatarActionModal } from './components/common/AvatarActionModal';
+import { AvatarUpload } from './components/common/AvatarUpload';
 
 import { AdminPortal } from './components/admin/AdminPortal';
 import { 
@@ -1507,6 +1509,8 @@ export default function App() {
   const [isStatusModalOpen, setIsStatusModalOpen] = useState(false);
   const [isLoveDayModalOpen, setIsLoveDayModalOpen] = useState(false);
   const [isNotificationsModalOpen, setIsNotificationsModalOpen] = useState(false);
+  const [headerAvatarModalOpen, setHeaderAvatarModalOpen] = useState(false);
+  const headerAvatarInputRef = React.useRef<HTMLInputElement>(null);
 
   // Interaction feedback states
   const [isWatering, setIsWatering] = useState(false);
@@ -2523,6 +2527,10 @@ export default function App() {
               playSound('click');
               setCurrentScreen('profile');
             }}
+            onAvatarClick={() => {
+              playSound('click');
+              setHeaderAvatarModalOpen(true);
+            }}
           />
         )}
 
@@ -2844,6 +2852,17 @@ export default function App() {
             }}
           />
         )}
+
+        {/* Hidden upload input & Modal tùy chọn Avatar từ Top Header */}
+        <AvatarUpload ref={headerAvatarInputRef} onSave={handleUpdateUserAvatar} />
+        <AvatarActionModal
+          isOpen={headerAvatarModalOpen}
+          onClose={() => setHeaderAvatarModalOpen(false)}
+          avatarUrl={couple.userA.avatar}
+          userName={couple.userA.name}
+          isOwnAvatar={true}
+          onEditAvatar={() => headerAvatarInputRef.current?.click()}
+        />
 
         {/* Floating Heart Burst Particles */}
         {floatingHearts.map((heart) => (
