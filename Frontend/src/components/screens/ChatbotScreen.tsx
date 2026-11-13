@@ -120,6 +120,21 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     return getInitialMessages(couple.userA.name);
   };
 
+  // Lưu tin nhắn đa tầng vào LocalStorage để đảm bảo F5 hoặc thoát ra không bao giờ bị mất
+  const persistChatMessages = (msgs: ChatMessage[]) => {
+    try {
+      const json = JSON.stringify(msgs);
+      localStorage.setItem(`lovera_chat_history_${currentUserId}`, json);
+      localStorage.setItem('lovera_chat_history', json);
+      if (couple.userA.name && couple.userA.name !== 'Alex') {
+        localStorage.setItem(`lovera_chat_history_${couple.userA.name.toLowerCase().trim()}`, json);
+      }
+      if (storedProfile?.id && storedProfile.id !== 'usr_alex') {
+        localStorage.setItem(`lovera_chat_history_${storedProfile.id.toLowerCase().trim()}`, json);
+      }
+    } catch {}
+  };
+
   const [messages, setMessages] = useState<ChatMessage[]>(() => getPersistedMessages());
 
   const [conversationId, setConversationId] = useState<string | null>(() => {
@@ -229,19 +244,38 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
             };
           });
 
-          // AN TOÀN TUYỆT ĐỐI: Không bao giờ ghi đè làm mất tin nhắn của người dùng!
+          // AN TOÀN TUYỆT ĐỐI: Không bao giờ ghi đè làm mất tin nhắn và câu trả lời của AI!
           setMessages(prev => {
-            if (!prev || prev.length <= 1) return mapped;
+            if (!prev || prev.length <= 1) {
+              if (mapped.length > 0) {
+                persistChatMessages(mapped);
+                return mapped;
+              }
+              return prev;
+            }
+
+            const localBotMsgs = prev.filter(m => m.sender === 'bot');
+            const backendBotMsgs = mapped.filter(m => m.sender === 'bot');
+
+            // Nếu local có câu trả lời của AI mà backend bị thiếu (do backend lỗi hoặc client Gemini/fallback trả lời),
+            // GIỮ NGUYÊN local, tuyệt đối không được xóa câu trả lời của người dùng khi F5!
+            if (localBotMsgs.length > backendBotMsgs.length) {
+              return prev;
+            }
+
             const localUserMsgs = prev.filter(m => m.sender === 'user');
             const backendUserMsgs = mapped.filter(m => m.sender === 'user');
-            // Nếu local có nhiều tin nhắn hơn backend (ví dụ: các tin nhắn offline / chưa lên backend), giữ nguyên local!
             if (localUserMsgs.length > backendUserMsgs.length) {
               return prev;
             }
-            try {
-              localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(mapped));
-            } catch {}
-            return mapped;
+
+            // Chỉ cập nhật nếu backend có đầy đủ cả câu hỏi và câu trả lời và nhiều hơn hoặc bằng local
+            if (mapped.length >= prev.length && backendBotMsgs.length >= localBotMsgs.length) {
+              persistChatMessages(mapped);
+              return mapped;
+            }
+
+            return prev;
           });
         }
       } catch (err) {
@@ -492,9 +526,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
 
     const updatedWithUser = [...messages, userMsg];
     setMessages(updatedWithUser);
-    try {
-      localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(updatedWithUser));
-    } catch {}
+    persistChatMessages(updatedWithUser);
     setInput('');
     setIsTyping(true);
 
@@ -540,9 +572,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
 
         const finalWithBot = [...updatedWithUser, botMsg];
         setMessages(finalWithBot);
-        try {
-          localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
-        } catch {}
+        persistChatMessages(finalWithBot);
         playSound('chime');
         onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
         setIsTyping(false);
@@ -572,9 +602,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
               };
               const finalWithBot = [...updatedWithUser, botMsg];
               setMessages(finalWithBot);
-              try {
-                localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
-              } catch {}
+              persistChatMessages(finalWithBot);
               playSound('chime');
               onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
               setIsTyping(false);
@@ -598,9 +626,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
         };
         const finalWithBot = [...updatedWithUser, botMsg];
         setMessages(finalWithBot);
-        try {
-          localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
-        } catch {}
+        persistChatMessages(finalWithBot);
         playSound('chime');
         onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
         setIsTyping(false);
@@ -628,9 +654,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
 
       const finalWithBot = [...updatedWithUser, botMsg];
       setMessages(finalWithBot);
-      try {
-        localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
-      } catch {}
+      persistChatMessages(finalWithBot);
       playSound('chime');
       onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
     } catch (err) {
@@ -646,23 +670,33 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       };
       const finalWithBot = [...updatedWithUser, botMsg];
       setMessages(finalWithBot);
-      try {
-        localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
-      } catch {}
+      persistChatMessages(finalWithBot);
       playSound('chime');
     } finally {
       setIsTyping(false);
     }
   };
 
-  const handleResetChat = async () => {
-    if (window.confirm('Bạn có muốn làm mới cuộc trò chuyện riêng tư với Lovera AI không?')) {
+  const handleClearChat = async () => {
+    if (window.confirm('Bạn có chắc chắn muốn xóa hết toàn bộ đoạn chat này không?')) {
       playSound('click');
       const resetMsg = getInitialMessages(couple.userA.name);
       setMessages(resetMsg);
-      localStorage.removeItem(`lovera_chat_history_${currentUserId}`);
+
+      const candidateKeys = [
+        `lovera_chat_history_${currentUserId}`,
+        couple.userA.id && couple.userA.id !== 'usr_alex' ? `lovera_chat_history_${couple.userA.id.toLowerCase().trim()}` : null,
+        storedProfile?.id && storedProfile.id !== 'usr_alex' ? `lovera_chat_history_${storedProfile.id.toLowerCase().trim()}` : null,
+        couple.userA.name && couple.userA.name !== 'Alex' ? `lovera_chat_history_${couple.userA.name.toLowerCase().trim()}` : null,
+        storedProfile?.email ? `lovera_chat_history_${storedProfile.email.toLowerCase().trim()}` : null,
+        'lovera_chat_history_usr_alex',
+        'lovera_chat_history',
+      ].filter(Boolean) as string[];
+
+      for (const k of candidateKeys) {
+        localStorage.removeItem(k);
+      }
       localStorage.removeItem(`lovera_active_ai_conv_id_${currentUserId}`);
-      localStorage.removeItem('lovera_chat_history');
       localStorage.removeItem('lovera_active_ai_conv_id');
       setShowBanner(true);
 
@@ -733,11 +767,11 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           </button>
           <button
             type="button"
-            onClick={handleResetChat}
-            title="Làm mới cuộc trò chuyện"
-            className="w-8 h-8 rounded-xl bg-stone-50 hover:bg-stone-100 border border-stone-200 text-stone-500 flex items-center justify-center transition-colors active:scale-95"
+            onClick={handleClearChat}
+            title="Xóa hết đoạn chat"
+            className="w-8 h-8 rounded-xl bg-stone-50 hover:bg-rose-50 border border-stone-200 hover:border-rose-200 text-stone-500 hover:text-rose-600 flex items-center justify-center transition-colors active:scale-95 cursor-pointer shadow-2xs"
           >
-            <RotateCcw className="w-4 h-4" />
+            <Trash2 className="w-4 h-4" />
           </button>
         </div>
       </header>
