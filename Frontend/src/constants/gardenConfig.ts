@@ -6,18 +6,24 @@ import { GardenStage } from '../types';
  */
 export const GARDEN_CONFIG = {
   // Khoảng thời gian cơ sở tính hao hụt (5 phút = 300,000 ms)
-  DECAY_INTERVAL_MS: 5 * 60 * 1000,
-  DECAY_INTERVAL_MINUTES: 5,
+  DECAY_INTERVAL_MS: 60 * 60 * 1000,
+  DECAY_INTERVAL_MINUTES: 60,
 
-  // Tỷ lệ hao hụt theo thời gian thực (sau mỗi 5 phút)
+  // Tỷ lệ hao hụt theo thời gian thực (sau mỗi 60 phút)
   DECAY_RATES: {
-    MOISTURE: 2,   // Độ ẩm đất: Giảm 2% / 5 phút
-    FRESHNESS: 1,  // Độ tươi tốt: Giảm 1% / 5 phút
-    SUNLIGHT: 3,   // Ánh nắng: Giảm 3% / 5 phút
+    MOISTURE: 1,   // Độ ẩm đất: Giảm 1% / 60 phút
+    FRESHNESS: 1,  // Độ tươi tốt: Giảm 1% / 60 phút
+    SUNLIGHT: 1,   // Ánh nắng: Giảm 1% / 60 phút
   },
 
-  // Thời gian hồi chiêu (Cooldown) giữa các lần chăm sóc: 5 phút
-  COOLDOWN_MS: 5 * 60 * 1000,
+  // Thời gian hồi chiêu (Cooldown) giữa các lần chăm sóc: 60 phút
+  COOLDOWN_MS: 60 * 60 * 1000,
+
+  // Điểm phát triển của một chu kỳ cây
+  CYCLE_TARGET_POINTS: 125,
+
+  // Tuổi cây tối thiểu 20 giờ
+  MIN_CYCLE_AGE_MS: 20 * 60 * 60 * 1000,
 
   // Điểm thưởng Love Points cho mỗi hành động
   ACTION_POINTS: {

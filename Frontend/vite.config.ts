@@ -180,7 +180,7 @@ export default defineConfig(({mode}) => {
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || 'https://january-caught-photographers-zealand.trycloudflare.com',
+          target: env.VITE_BACKEND_TARGET || process.env.VITE_BACKEND_TARGET || 'https://pleasant-enquiries-donald-mounting.trycloudflare.com',
           changeOrigin: true,
           secure: false,
         },

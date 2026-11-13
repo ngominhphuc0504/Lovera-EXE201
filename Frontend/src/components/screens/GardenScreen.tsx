@@ -651,7 +651,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
             </div>
             <div className="flex items-center justify-between text-[9px] text-stone-500 pt-0.5">
               <span>{metrics.moisture >= 70 ? 'Màu mỡ' : metrics.moisture >= 30 ? 'Vừa đủ' : 'Khô cằn'}</span>
-              <span className="text-stone-400">-2%/5m</span>
+              <span className="text-stone-400">-{GARDEN_CONFIG.DECAY_RATES.MOISTURE}%/{GARDEN_CONFIG.DECAY_INTERVAL_MINUTES}m</span>
             </div>
           </div>
 
@@ -674,7 +674,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
             </div>
             <div className="flex items-center justify-between text-[9px] text-stone-500 pt-0.5">
               <span>{metrics.freshness >= 70 ? 'Xanh mượt' : metrics.freshness >= 30 ? 'Khỏe mạnh' : 'Héo úa'}</span>
-              <span className="text-stone-400">-1%/5m</span>
+              <span className="text-stone-400">-{GARDEN_CONFIG.DECAY_RATES.FRESHNESS}%/{GARDEN_CONFIG.DECAY_INTERVAL_MINUTES}m</span>
             </div>
           </div>
 
@@ -697,7 +697,7 @@ export const GardenScreen: React.FC<GardenScreenProps> = ({
             </div>
             <div className="flex items-center justify-between text-[9px] text-stone-500 pt-0.5">
               <span>{metrics.sunlight >= 70 ? 'Rực rỡ' : metrics.sunlight >= 30 ? 'Ấm áp' : 'Thiếu sáng'}</span>
-              <span className="text-stone-400">-3%/5m</span>
+              <span className="text-stone-400">-{GARDEN_CONFIG.DECAY_RATES.SUNLIGHT}%/{GARDEN_CONFIG.DECAY_INTERVAL_MINUTES}m</span>
             </div>
           </div>
 
