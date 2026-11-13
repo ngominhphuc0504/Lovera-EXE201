@@ -32,6 +32,7 @@ export type SyncMessageType =
   | 'SYNC_MEMORY_NOTIFICATION'
   | 'SYNC_AVATAR'
   | 'SYNC_NICKNAMES'
+  | 'SHARED_STATE_INIT'
   | 'REQUEST_SYNC'
   | 'SYNC_ALL';
 
@@ -51,7 +52,8 @@ export function cleanupOversizedStorage(): void {
       const key = localStorage.key(i);
       if (key) {
         const val = localStorage.getItem(key);
-        if (val && (val.startsWith('/api/') || (val.length > 100 * 1024 && (key.includes('avatar') || key.includes('alex'))))) {
+        // Only evict corrupted API route path strings or non-app keys exceeding 5MB
+        if (val && (val.startsWith('/api/') || (val.length > 5 * 1024 * 1024 && !key.startsWith('lovera_')))) {
           keysToRemove.push(key);
         }
       }
@@ -83,23 +85,59 @@ export function loadStoredData<T>(key: string, fallback: T): T {
 }
 
 /**
+ * Safely saves a single string value to localStorage without throwing QuotaExceededError.
+ */
+export function safeSetItem(key: string, value: string): boolean {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return false;
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    try {
+      localStorage.removeItem('lovera_admin_logs');
+      localStorage.removeItem('lovera_point_history');
+      localStorage.removeItem('lovera_date_plans');
+      localStorage.removeItem('lovera_chat_history');
+      localStorage.removeItem('lovera_memories');
+      localStorage.setItem(key, value);
+      return true;
+    } catch {
+      try {
+        if (key.includes('avatar')) {
+          localStorage.removeItem('lovera_alex_avatar');
+          localStorage.removeItem('lovera_user_avatars');
+          localStorage.setItem(key, value);
+          return true;
+        }
+      } catch {}
+      return false;
+    }
+  }
+}
+
+/**
  * Safely saves data to localStorage.
+ * Automatically keeps lovera_couple lightweight by avoiding duplicated massive base64 strings in the couple JSON,
+ * preventing QuotaExceededError in strict Incognito browser windows.
  */
 export function saveStoredData<T>(key: string, value: T): boolean {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return false;
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    let payload = value;
+    if (key === STORAGE_KEYS.COUPLE && typeof value === 'object' && value !== null) {
+      const c = { ...value } as any;
+      if (c.userA?.avatar?.length > 80000) c.userA = { ...c.userA, avatar: '' };
+      if (c.userB?.avatar?.length > 80000) c.userB = { ...c.userB, avatar: '' };
+      payload = c as T;
+    }
+    localStorage.setItem(key, JSON.stringify(payload));
     return true;
   } catch (err) {
     console.warn(`[SyncManager] Failed to save key "${key}" to localStorage:`, err);
-    cleanupOversizedStorage();
     try {
-      if (key === 'lovera_couple' && typeof value === 'object' && value !== null) {
-        const safe = { ...value } as any;
-        if (safe.userA?.avatar?.length > 10000) safe.userA = { ...safe.userA, avatar: '' };
-        if (safe.userB?.avatar?.length > 10000) safe.userB = { ...safe.userB, avatar: '' };
-        localStorage.setItem(key, JSON.stringify(safe));
-        return true;
-      }
+      localStorage.removeItem('lovera_admin_logs');
+      localStorage.removeItem('lovera_point_history');
+      localStorage.removeItem('lovera_date_plans');
       localStorage.setItem(key, JSON.stringify(value));
       return true;
     } catch {}
@@ -141,15 +179,40 @@ export function broadcastMessage(type: SyncMessageType, payload: any): void {
   } catch (err) {
     // ignore
   }
+
+  // 3. Instant cross-browser dev bridge dispatch (POST /__lovera_sync)
+  if (typeof window !== 'undefined') {
+    try {
+      fetch('/__lovera_sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      }).catch(() => {});
+    } catch {}
+  }
 }
 
 /**
  * Subscribes to cross-tab sync events (both BroadcastChannel and window storage events).
  */
 export function subscribeToSync(onMessage: (msg: SyncMessage) => void): () => void {
+  const seenSeq = new Set<string>();
+
+  const deliver = (msg: SyncMessage) => {
+    if (!msg || msg.senderId === TAB_ID) return;
+    const msgId = (msg as any)._seq ? String((msg as any)._seq) : `${msg.type}_${msg.timestamp}_${JSON.stringify(msg.payload || {}).slice(0, 40)}`;
+    if (seenSeq.has(msgId)) return;
+    seenSeq.add(msgId);
+    if (seenSeq.size > 200) {
+      const first = seenSeq.values().next().value;
+      if (first) seenSeq.delete(first);
+    }
+    onMessage(msg);
+  };
+
   const handleBcMessage = (event: MessageEvent<SyncMessage>) => {
-    if (event.data && event.data.senderId !== TAB_ID) {
-      onMessage(event.data);
+    if (event.data) {
+      deliver(event.data);
     }
   };
 
@@ -158,21 +221,21 @@ export function subscribeToSync(onMessage: (msg: SyncMessage) => void): () => vo
     try {
       const parsed = JSON.parse(event.newValue);
       if (event.key === STORAGE_KEYS.MEMORIES) {
-        onMessage({ type: 'SYNC_MEMORIES', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_MEMORIES', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.COUPLE) {
-        onMessage({ type: 'SYNC_COUPLE', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_COUPLE', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.ADMIN_USERS) {
-        onMessage({ type: 'SYNC_ADMIN_USERS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_ADMIN_USERS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.ADMIN_LOGS) {
-        onMessage({ type: 'SYNC_ADMIN_LOGS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_ADMIN_LOGS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.ADMIN_METRICS) {
-        onMessage({ type: 'SYNC_ADMIN_METRICS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_ADMIN_METRICS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.DATE_PLANS) {
-        onMessage({ type: 'SYNC_DATE_PLANS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_DATE_PLANS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.POINT_HISTORY) {
-        onMessage({ type: 'SYNC_POINT_HISTORY', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_POINT_HISTORY', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       } else if (event.key === STORAGE_KEYS.GARDEN_METRICS) {
-        onMessage({ type: 'SYNC_GARDEN_METRICS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
+        deliver({ type: 'SYNC_GARDEN_METRICS', payload: parsed, timestamp: Date.now(), senderId: 'storage_event' });
       }
     } catch (err) {
       // ignore
@@ -182,9 +245,75 @@ export function subscribeToSync(onMessage: (msg: SyncMessage) => void): () => vo
   channel?.addEventListener('message', handleBcMessage);
   window.addEventListener('storage', handleStorageEvent);
 
+  // 3. Connect to Vite Dev Server SSE stream (/__lovera_sync?stream=true) for instant (<50ms) cross-browser sync
+  let sse: EventSource | null = null;
+  let lastSeq = 0;
+  let lastPollTimestamp = Date.now() - 5000;
+
+  try {
+    if (typeof window !== 'undefined' && typeof EventSource !== 'undefined') {
+      sse = new EventSource('/__lovera_sync?stream=true');
+      sse.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.seq && msg.seq > lastSeq) lastSeq = msg.seq;
+          deliver(msg);
+        } catch {}
+      };
+    }
+  } catch {}
+
+  // 4. Ultra-responsive fast polling (300ms) + focus/visibility/click wakeup
+  // Ensures normal <-> incognito tabs sync immediately without requiring F5
+  const pollNow = () => {
+    if (typeof window === 'undefined') return;
+    fetch(`/__lovera_sync?since_seq=${lastSeq}&since=${lastPollTimestamp}`)
+      .then(res => res.json())
+      .then(data => {
+        if (typeof data?.maxSeq === 'number' && data.maxSeq > lastSeq) {
+          lastSeq = data.maxSeq;
+        }
+        if (data?.sharedState) {
+          deliver({
+            type: 'SHARED_STATE_INIT',
+            payload: data.sharedState,
+            timestamp: Date.now(),
+            senderId: 'dev_server_state',
+          });
+        }
+        if (data?.messages && Array.isArray(data.messages)) {
+          data.messages.forEach((m: any) => {
+            if (m.seq && m.seq > lastSeq) lastSeq = m.seq;
+            if (m.timestamp && m.timestamp > lastPollTimestamp) {
+              lastPollTimestamp = m.timestamp;
+            }
+            deliver(m);
+          });
+        }
+      })
+      .catch(() => {});
+  };
+
+  const pollTimer = setInterval(pollNow, 300);
+
+  const handleWakeup = () => {
+    pollNow();
+  };
+
+  window.addEventListener('focus', handleWakeup);
+  window.addEventListener('pointerdown', handleWakeup);
+  document.addEventListener('visibilitychange', handleWakeup);
+
   return () => {
     channel?.removeEventListener('message', handleBcMessage);
     window.removeEventListener('storage', handleStorageEvent);
+    window.removeEventListener('focus', handleWakeup);
+    window.removeEventListener('pointerdown', handleWakeup);
+    document.removeEventListener('visibilitychange', handleWakeup);
+    clearInterval(pollTimer);
+    if (sse) {
+      try { sse.close(); } catch {}
+    }
   };
 }
 

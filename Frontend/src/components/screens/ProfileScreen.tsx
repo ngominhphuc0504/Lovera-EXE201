@@ -19,6 +19,7 @@ import {
 import { CoupleData } from '../../types';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
 import { compressImageFile } from '../../utils/syncManager';
+import { isGuid } from '../../utils/userDirectory';
 
 interface ProfileScreenProps {
   couple: CoupleData;
@@ -47,8 +48,20 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   const { userA, userB, startDate } = couple;
   const totalDays = calculateTotalDays(startDate);
 
-  const [nickA, setNickA] = useState(userA.name);
-  const [nickB, setNickB] = useState(userB.name);
+  const [nickA, setNickA] = useState(() => (userA.name && !isGuid(userA.name) && userA.name !== 'Người Thương') ? userA.name : '');
+  const [nickB, setNickB] = useState(() => (userB.name && !isGuid(userB.name) && userB.name !== 'Người Thương') ? userB.name : '');
+
+  React.useEffect(() => {
+    if (userA.name && !isGuid(userA.name) && userA.name !== 'Người Thương') {
+      setNickA(userA.name);
+    }
+  }, [userA.name]);
+
+  React.useEffect(() => {
+    if (userB.name && !isGuid(userB.name) && userB.name !== 'Người Thương') {
+      setNickB(userB.name);
+    }
+  }, [userB.name]);
   const [savedToast, setSavedToast] = useState('');
   const [showUnpairConfirm, setShowUnpairConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -63,7 +76,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
     }
 
     try {
-      const compressed = await compressImageFile(file, 300, 0.85);
+      const compressed = await compressImageFile(file, 400, 0.85);
       onUpdateAvatar?.(compressed, file);
       playSound('success');
       setSavedToast('Đã đổi và đồng bộ avatar thành công!');
@@ -88,10 +101,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 
   const handleSaveNicknames = async () => {
     if (isSubmittingNicknames) return;
+    const cleanA = nickA.trim();
+    const cleanB = nickB.trim();
+    if (!cleanA || isGuid(cleanA)) {
+      setSavedToast('Vui lòng nhập biệt danh hợp lệ cho bạn.');
+      playSound('error');
+      setTimeout(() => setSavedToast(''), 2500);
+      return;
+    }
+    if (!cleanB || isGuid(cleanB)) {
+      setSavedToast('Vui lòng nhập biệt danh hợp lệ cho người ấy.');
+      playSound('error');
+      setTimeout(() => setSavedToast(''), 2500);
+      return;
+    }
     setIsSubmittingNicknames(true);
     try {
-      await onUpdateNicknames(nickA, nickB);
-      setSavedToast('Đã lưu biệt danh mới của hai bạn!');
+      await onUpdateNicknames(cleanA, cleanB);
+      setSavedToast('Đã lưu và đồng bộ biệt danh mới!');
       playSound('success');
     } catch (err: any) {
       setSavedToast(err?.message || 'Không thể lưu biệt danh.');
@@ -220,7 +247,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
           </div>
 
           <h3 className="font-serif-romantic text-lg font-bold">
-            {userA.name} & {userB.name}
+            {userA.name} & {(!userB.name || isGuid(userB.name) || userB.name === 'Người Thương') ? (nickB || 'Người Thương') : userB.name}
           </h3>
           <p className="text-xs text-rose-100 mt-0.5 font-medium">
             Bên nhau {totalDays} Ngày · Từ {formatVNDate(startDate)}
@@ -328,7 +355,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   type="text"
                   value={nickA}
                   onChange={(e) => setNickA(e.target.value)}
-                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveNicknames(); }}
+                  placeholder="Biệt danh của bạn..."
+                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 placeholder:text-stone-400 placeholder:font-normal"
                 />
               </div>
               <div>
@@ -339,7 +368,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
                   type="text"
                   value={nickB}
                   onChange={(e) => setNickB(e.target.value)}
-                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400"
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveNicknames(); }}
+                  placeholder="Biệt danh người ấy..."
+                  className="w-full text-xs font-semibold px-3 py-2.5 bg-stone-50 rounded-xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 placeholder:text-stone-400 placeholder:font-normal"
                 />
               </div>
             </div>

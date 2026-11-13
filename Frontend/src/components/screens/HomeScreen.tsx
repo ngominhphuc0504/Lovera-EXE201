@@ -17,6 +17,7 @@ import { CoupleData, MemoryItem } from '../../types';
 import { INITIAL_ACTIVITY_OPTIONS, INITIAL_STATUS_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
 import { compressImageFile } from '../../utils/syncManager';
+import { isGuid } from '../../utils/userDirectory';
 import { MemoryPhoto } from '../common/MemoryPhoto';
 
 const getStatusLabel = (status: CoupleData['userA']['status']) =>
@@ -26,6 +27,19 @@ const getActivityLabel = (activity?: CoupleData['userA']['activity']) =>
   activity
     ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === activity)?.label ?? activity
     : 'Chưa chọn hoạt động';
+
+const getCleanDisplayName = (name?: string, fallback = 'Người Thương') => {
+  if (!name) return fallback;
+  const t = name.trim();
+  if (!t || t === 'Người Thương' || t === 'Chưa kết nối' || isGuid(t)) {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('lovera_partner_nickname');
+      if (saved && !isGuid(saved) && saved !== 'Người Thương') return saved;
+    }
+    return fallback;
+  }
+  return t;
+};
 
 interface HomeScreenProps {
   onUpdatePartnerNickname?: (newName: string) => void;
@@ -264,11 +278,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="relative shrink-0">
               <div
                 className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs"
-                title={userB.name}
+                title={getCleanDisplayName(userB.name)}
               >
                 <img
                   src={userB.avatar}
-                  alt={userB.name}
+                  alt={getCleanDisplayName(userB.name)}
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250';
@@ -298,13 +312,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   </span>
                 )}
                 <div className="flex items-center gap-1 min-w-0">
-                  <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userB.name}</h3>
+                  <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{getCleanDisplayName(userB.name)}</h3>
                   {onUpdatePartnerNickname && (
                     <button
                       type="button"
                       onClick={() => {
-                        const newName = prompt('Đổi biệt danh cho người ấy:', userB.name);
-                        if (newName && newName.trim()) {
+                        const defaultPromptVal = (userB.name && !isGuid(userB.name) && userB.name !== 'Người Thương') ? userB.name : (getCleanDisplayName(userB.name) !== 'Người Thương' ? getCleanDisplayName(userB.name) : '');
+                        const newName = prompt('Đổi biệt danh cho người ấy:', defaultPromptVal);
+                        if (newName && newName.trim() && !isGuid(newName.trim())) {
                           onUpdatePartnerNickname(newName.trim());
                         }
                       }}
@@ -418,7 +433,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
 
           <div className="bg-purple-50/50 p-2.5 rounded-2xl border border-purple-100/80">
-            <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{userB.name}:</span>
+            <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{getCleanDisplayName(userB.name)}:</span>
             <div className="font-bold text-stone-900 flex items-center gap-1">
               <span>{userB.activity ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === userB.activity)?.icon : '💬'}</span>
               <span>{getStatusLabel(userB.status)}</span>

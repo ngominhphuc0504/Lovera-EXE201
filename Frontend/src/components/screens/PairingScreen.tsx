@@ -24,7 +24,7 @@ import { playSound } from '../../utils/audio';
 import { Partner } from '../../types';
 import { coupleService } from '../../services/coupleService';
 import { getSessionKey, getStoredToken } from '../../services/apiClient';
-import { isValidDisplayAvatar, findKnownUserById } from '../../utils/userDirectory';
+import { isValidDisplayAvatar, findKnownUserById, isGuid } from '../../utils/userDirectory';
 
 export type PairingStage = 
   | 'idle'                // 1. Chưa kết nối: Chọn Tạo mã hoặc Nhập mã
@@ -131,23 +131,30 @@ export const PairingScreen: React.FC<PairingScreenProps> = ({
         (isValidDisplayAvatar(partnerObj.avatar) ? partnerObj.avatar : '') ||
         partnerCandidate.avatar;
 
+      const rawCandidateName = partnerObj.displayName || partnerObj.name;
+      const cleanCandidateName = (rawCandidateName && !isGuid(rawCandidateName) && rawCandidateName !== 'Người Thương')
+        ? rawCandidateName.trim()
+        : '';
+      const fallbackName = (partnerCandidate.name !== 'Sam' && !isGuid(partnerCandidate.name)) ? partnerCandidate.name : 'Người Thương';
+
       return {
         id: partnerObj.userId || partnerObj.id || 'usr_partner',
-        name: partnerObj.displayName || partnerObj.name || (partnerCandidate.name !== 'Sam' ? partnerCandidate.name : 'Người Thương'),
+        name: cleanCandidateName || fallbackName,
         email: partnerObj.email || '',
         avatar: partnerAvatar,
       };
     }
     const otherId = coupleObj.userIds?.find((id: string) => id?.toLowerCase() !== currentUser?.id?.toLowerCase()) || 'usr_partner';
     const known = findKnownUserById(otherId);
-    const savedName =
+    const rawSaved =
       (otherId ? localStorage.getItem(`lovera_partner_name_${otherId.toLowerCase()}`) : null) ||
       (coupleObj.coupleId ? localStorage.getItem(`lovera_partner_name_${coupleObj.coupleId}`) : null) ||
       (localStorage.getItem('lovera_partner_nickname') && localStorage.getItem('lovera_partner_nickname') !== 'Người Thương' ? localStorage.getItem('lovera_partner_nickname') : null);
+    const cleanSaved = (rawSaved && !isGuid(rawSaved) && rawSaved !== 'Người Thương') ? rawSaved.trim() : '';
 
     return {
       id: otherId,
-      name: savedName || known?.name || (partnerCandidate.name !== 'Sam' ? partnerCandidate.name : 'Người Thương'),
+      name: cleanSaved || (known?.name && !isGuid(known.name) ? known.name : '') || (partnerCandidate.name !== 'Sam' ? partnerCandidate.name : 'Người Thương'),
       email: known?.email || '',
       avatar: known?.avatar || partnerCandidate.avatar,
     };
