@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { CoupleData, ChatMessage } from '../types';
 
 export interface GeminiResponse {
@@ -47,7 +46,7 @@ export function isGeminiConfigured(): boolean {
 }
 
 /**
- * Tạo câu trả lời thông minh bằng Gemini 2.5 Flash thông qua @google/genai
+ * Tạo câu trả lời thông minh bằng Google Gemini REST API
  * Tự động dự phòng về bộ phản hồi cục bộ nếu chưa có API key hoặc lỗi mạng
  */
 export async function generateGeminiReply(
@@ -69,8 +68,6 @@ export async function generateGeminiReply(
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-
     const systemInstruction = `Bạn là Lovera AI (Lovera Cupid) — Trợ lý tình yêu 1:1 thông minh, ngọt ngào, tâm lý và tinh tế dành riêng cho ${couple.userA.name} (đang trò chuyện riêng tư với bạn, người yêu là ${couple.userB.name}).
 Hai bạn đã yêu nhau từ ngày ${couple.startDate}.
 Nhiệm vụ của bạn:
@@ -104,31 +101,59 @@ Cách viết tin nhắn làm lành chân thành`;
       }
     ];
 
-    // Thử lần lượt các mô hình Gemini theo thứ tự ưu tiên
+    // Đảm bảo tin nhắn đầu tiên gửi lên Google API có role là 'user'
+    const validContents = [...contents];
+    while (validContents.length > 0 && validContents[0].role !== 'user') {
+      validContents.shift();
+    }
+    if (validContents.length === 0) {
+      validContents.push({ role: 'user', parts: [{ text: userQuery }] });
+    }
+
+    // Thử lần lượt các mô hình Gemini chính thức từ Google qua REST API
     const modelsToTry = [
-      'gemini-3.8-flash',
-      'gemini-2.5-flash',
+      'gemini-1.5-flash',
       'gemini-2.0-flash',
-      'gemini-1.5-flash'
+      'gemini-2.5-flash',
+      'gemini-1.5-pro'
     ];
     let responseText = '';
     let lastError: unknown = null;
 
     for (const model of modelsToTry) {
       try {
-        const response = await ai.models.generateContent({
-          model,
-          contents,
-          config: {
-            systemInstruction,
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const body: any = {
+          contents: validContents,
+          generationConfig: {
             temperature: 0.8,
             maxOutputTokens: 1200,
           }
+        };
+        if (systemInstruction) {
+          body.systemInstruction = {
+            parts: [{ text: systemInstruction }]
+          };
+        }
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
         });
 
-        if (response && response.text) {
-          responseText = response.text;
-          break;
+        if (res.ok) {
+          const data = await res.json();
+          const textCandidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (textCandidate && typeof textCandidate === 'string' && textCandidate.trim()) {
+            responseText = textCandidate;
+            break;
+          }
+        } else {
+          const errText = await res.text();
+          console.warn(`Gemini ${model} returned HTTP ${res.status}:`, errText);
         }
       } catch (err) {
         lastError = err;
@@ -170,7 +195,7 @@ Cách viết tin nhắn làm lành chân thành`;
       isGeminiPowered: true,
     };
   } catch (error) {
-    console.error('Gemini API call failed, falling back to local engine:', error);
+    console.warn('Gemini API call failed, falling back to local engine:', error);
     const fallback = fallbackFn(userQuery);
     return {
       text: fallback.text,

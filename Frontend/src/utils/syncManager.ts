@@ -273,10 +273,11 @@ export function subscribeToSync(onMessage: (msg: SyncMessage) => void): () => vo
     }
   } catch {}
 
-  // 4. Ultra-responsive fast polling (300ms) + focus/visibility/click wakeup
-  // Ensures normal <-> incognito tabs sync immediately without requiring F5
+  // 4. Balanced background sync polling (2500ms) + focus/visibility/click wakeup
+  // Ensures normal <-> incognito tabs sync smoothly without freezing network or consuming GBs of bandwidth
   const pollNow = () => {
     if (typeof window === 'undefined') return;
+    if (typeof document !== 'undefined' && document.hidden) return;
     fetch(`/__lovera_sync?since_seq=${lastSeq}&since=${lastPollTimestamp}`)
       .then(res => res.json())
       .then(data => {
@@ -304,7 +305,7 @@ export function subscribeToSync(onMessage: (msg: SyncMessage) => void): () => vo
       .catch(() => {});
   };
 
-  const pollTimer = setInterval(pollNow, 300);
+  const pollTimer = setInterval(pollNow, 2500);
 
   const handleWakeup = () => {
     pollNow();

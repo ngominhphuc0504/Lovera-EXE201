@@ -162,9 +162,14 @@ export default defineConfig(({mode}) => {
                 if (sinceSeq > 0) return (m.seq || 0) > sinceSeq;
                 return (m.timestamp || 0) > sinceTime;
               });
+              const isInit = sinceSeq === 0 || url.searchParams.get('init') === 'true';
               res.statusCode = 200;
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ messages: newMsgs, maxSeq: globalSeq, sharedState }));
+              res.end(JSON.stringify({
+                messages: newMsgs,
+                maxSeq: globalSeq,
+                ...(isInit ? { sharedState } : {})
+              }));
             }
           });
         }

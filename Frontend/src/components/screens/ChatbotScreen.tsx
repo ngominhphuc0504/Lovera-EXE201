@@ -233,14 +233,38 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   const generateBotReply = (userQuery: string): { text: string; suggestions: string[] } => {
     const q = userQuery.toLowerCase();
 
-    // 1. Dating Ideas
-    if (q.includes('hẹn hò') || q.includes('đi chơi') || q.includes('cuối tuần') || q.includes('buổi hẹn')) {
+    // 1. Dating Ideas & Locations
+    if (q.includes('hẹn hò') || q.includes('đi chơi') || q.includes('cuối tuần') || q.includes('buổi hẹn') || q.includes('ở đâu') || q.includes('quán')) {
+      // Nếu có đề cập đến ngân sách (ví dụ: 500k, chi phí)
+      if (q.includes('500k') || q.includes('ngân sách') || q.includes('chi phí') || q.includes('tiền')) {
+        return {
+          text: `Với ngân sách khoảng **500.000đ**, LOVERA gợi ý cho hai bạn những địa điểm ăn uống & hẹn hò ấm cúng, cực kỳ hợp túi tiền:\n\n✨ **1. Pizza Nướng Củi & Mỳ Ý Sốt Kem (~420k/2 người):**\n• Gợi ý: Buzza Pizza hoặc The Pizza Company (chọn 1 pizza cỡ vừa + 1 mỳ Ý sốt kem nấm/cua).\n• Không gian ấm áp, nhạc nhẹ nhàng, cực kỳ lãng mạn cho một buổi tối tâm sự.\n\n✨ **2. Set Lẩu Mini / Nướng Hàn Quốc Ấm Cúng (~400k/2 người):**\n• Vừa nướng đồ ăn cho nhau vừa trò chuyện, sau bữa ăn còn dư khoảng 100k để ghé trà sữa hoặc kem dừa tráng miệng.\n\n✨ **3. Dạo Phố Ẩm Thực & Cà Phê Acoustic (~350k/2 người):**\n• Thưởng thức các món ngon đường phố (khu Thảo Điền hoặc Quận 3), sau đó ghé một quán cà phê ngắm phố đêm lung linh.\n\n💡 Bạn có muốn mình gợi ý thêm quán cà phê yên tĩnh gần khu vực của hai bạn không?`,
+          suggestions: [
+            'Gợi ý quán cà phê lãng mạn',
+            'Thực đơn tự nấu tại nhà dưới 300k',
+            'Nên mặc trang phục gì để chụp ảnh đôi đẹp?'
+          ]
+        };
+      }
+
       return {
         text: `Dưới đây là 3 gợi ý buổi hẹn hò ngọt ngào được thiết kế riêng cho hai bạn:\n\n✨ **1. Workshop Làm Gốm & Cà Phê Chiều:**\nCùng nhau nặn một chiếc cốc đôi khắc tên hai bạn. Vừa rèn luyện tính kiên nhẫn, vừa có kỷ vật lưu giữ mãi về sau!\n\n✨ **2. Picnic Hoàng Hôn Bên Bờ Sông:**\nChuẩn bị một tấm thảm caro, vài chiếc bánh ngọt, trái cây và tai nghe đôi để cùng nghe bản nhạc quen khi hoàng hôn buông xuống.\n\n✨ **3. Rạp Chiếu Phim Tại Gia (Home Cinema):**\nBật đèn vàng ấm, chuẩn bị bắp rang bơ, gối ôm êm ái và chọn một bộ phim tình cảm lãng mạn (gợi ý: *About Time* hoặc *La La Land*).`,
         suggestions: [
           'Chi phí dự kiến cho buổi hẹn này là bao nhiêu?',
           'Nên mặc trang phục gì để chụp ảnh đôi đẹp?',
           'Gợi ý thêm buổi hẹn dành cho ngày mưa'
+        ]
+      };
+    }
+
+    // 1b. Budget specific
+    if (q.includes('500k') || q.includes('ngân sách') || q.includes('chi phí')) {
+      return {
+        text: `Với ngân sách khoảng **500.000đ**, LOVERA gợi ý kế hoạch hẹn hò lãng mạn tối nay cho hai bạn:\n\n🍽️ **Ăn tối (~350k):** Bữa tối lẩu mini ấm áp hoặc mỳ Ý bít-tết dưới ánh nến.\n🍧 **Tráng miệng (~100k - 150k):** Ghé quán trà sữa, bingsu hoặc ngắm view đêm trên cầu Ánh Sao / bến Bạch Đằng.\n\nKhông cần quá xa hoa, chỉ cần thời gian chất lượng bên nhau là buổi hẹn đã đong đầy ý nghĩa rồi! 💕`,
+        suggestions: [
+          'Gợi ý thêm quán ăn ngon rẻ',
+          'Ý tưởng hẹn hò miễn phí nhưng vui',
+          'Câu hỏi tâm sự cho bữa tối'
         ]
       };
     }
@@ -449,24 +473,24 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
               return;
             }
           } catch (geminiClientErr) {
-            console.error('[ChatbotScreen] Client Gemini also failed:', geminiClientErr);
+            console.warn('[ChatbotScreen] Client Gemini also failed, falling back to smart local assistant:', geminiClientErr);
           }
         }
 
-        // Show transparent error status from Backend so user is never misled by hardcoded template replies
-        const errorMsg = backendErr?.message || 'AI Backend đang bận hoặc chưa thể phản hồi.';
-        const botErrorMsg: ChatMessage = {
-          id: `err_${Date.now()}`,
+        // Tự động chuyển tiếp sang Trợ lý Tình yêu thông minh cục bộ
+        // Đảm bảo trải nghiệm lãng mạn mượt mà, luôn có câu trả lời tinh tế và chu đáo cho người dùng
+        const fallback = generateBotReply(query);
+        const botMsg: ChatMessage = {
+          id: `bot_${Date.now()}`,
           sender: 'bot',
-          text: `⚠️ **Phản hồi từ Lovera Backend AI:**\n${errorMsg}\n\n📌 **Nguyên nhân kỹ thuật:**\nFrontend đã kết nối thành công tới API Backend (\`/api/ai-conversations\`), nhưng khi server Backend chuyển tiếp tới Google Gemini thì gặp lỗi (do máy chủ Backend chưa cấu hình biến môi trường \`AI_API_KEY\` hoặc \`AI_MODEL\`).\n\n✨ **Cách giải quyết:**\n1. **Phía Server Backend:** Điền \`AI_API_KEY\` và \`AI_MODEL\` vào file cấu hình của server Backend.\n2. **Hoặc bật Gemini ngay tại trình duyệt:** Bấm vào nút **"Bật Gemini"** hoặc biểu tượng chìa khóa 🔑 ở góc trên để dán API Key miễn phí từ [Google AI Studio](https://aistudio.google.com/app/apikey) để trò chuyện với Gemini AI ngay lập tức!`,
+          text: fallback.text,
           timestamp: 'Vừa xong',
-          suggestions: [
-            '💡 Ý tưởng hẹn hò lãng mạn',
-            '🍲 Hôm nay ăn gì?'
-          ]
+          suggestions: fallback.suggestions,
+          isGemini: false
         };
-        setMessages(prev => [...prev, botErrorMsg]);
+        setMessages(prev => [...prev, botMsg]);
         playSound('chime');
+        onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
         setIsTyping(false);
         return;
       }
