@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Heart, Lock, Mail, ArrowLeft, Eye, EyeOff, AlertCircle, LogIn, CheckCircle2, Shield, Sparkles } from 'lucide-react';
+import loveraLogo from '../../assets/images/lovera_logo.png';
 import { playSound } from '../../utils/audio';
 import { authService } from '../../services/authService';
 import { coupleService } from '../../services/coupleService';
@@ -142,27 +143,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             <ArrowLeft className="w-4 h-4" />
           </button>
           
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
-              LOVERA AUTH API
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-rose-50 via-pink-50 to-purple-50 border border-rose-200/80 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-xs"></span>
+            <span className="font-display text-[12px] font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-600 via-pink-600 to-purple-600">
+              LOVERA
             </span>
           </div>
 
           <div className="w-10"></div>
         </div>
 
-        {/* Title */}
-        <div className="text-center mt-4 mb-3">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 mb-2 shadow-2xs">
-            <LogIn className="w-6 h-6" />
+        {/* Title & Logo */}
+        <div className="text-center mt-3 mb-2">
+          <div className="relative inline-flex items-center justify-center w-20 h-20 mb-1 mx-auto group">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-rose-400/20 via-pink-400/20 to-purple-400/20 blur-md group-hover:scale-105 transition-transform"></div>
+            <img
+              src={loveraLogo}
+              alt="LOVERA Logo"
+              className="relative w-20 h-20 object-contain drop-shadow-sm select-none"
+            />
           </div>
-          <h2 className="font-serif-romantic text-2xl font-bold text-stone-900">
+          <h2 className="font-serif-romantic text-2xl font-bold text-stone-900 tracking-tight">
             Đăng Nhập
           </h2>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Xác thực qua JWT Token & Backend .NET 8
-          </p>
         </div>
       </div>
 
@@ -255,28 +258,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
         {/* Quick Test Demo Presets */}
         <div className="pt-2">
-          <p className="text-[10px] text-stone-400 text-center font-medium mb-1.5">
-            Lối tắt kiểm thử nhanh cho Tester:
-          </p>
+          <div className="flex items-center justify-center gap-1.5 mb-2">
+            <Sparkles className="w-3 h-3 text-rose-400" />
+            <span className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">
+              Lối tắt kiểm thử nhanh cho Tester
+            </span>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => handleQuickPreset('alex.new@lovera.app', 'password123', false)}
-              className="p-2 bg-white/90 hover:bg-rose-50 rounded-xl border border-rose-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
+              className="p-2.5 bg-gradient-to-br from-white to-rose-50/40 hover:to-rose-100/60 rounded-2xl border border-rose-100 hover:border-rose-300 text-[10px] text-stone-700 font-semibold text-left transition-all shadow-2xs hover:shadow-xs active:scale-98 cursor-pointer flex flex-col gap-0.5 group"
             >
-              <span className="text-rose-600 font-bold">1. Alex (Chưa kết nối)</span>
+              <span className="text-rose-600 font-bold group-hover:text-rose-700 transition-colors">1. Alex (Chưa kết nối)</span>
               <span className="text-[9px] text-stone-400">→ Chuyển đến Pairing</span>
             </button>
             <button
               type="button"
               onClick={() => handleQuickPreset('alex.paired@lovera.app', 'password123', true)}
-              className="p-2 bg-white/90 hover:bg-emerald-50 rounded-xl border border-emerald-100 text-[10px] text-stone-700 font-semibold text-left transition-colors shadow-2xs flex flex-col cursor-pointer"
+              className="p-2.5 bg-gradient-to-br from-white to-emerald-50/40 hover:to-emerald-100/60 rounded-2xl border border-emerald-100 hover:border-emerald-300 text-[10px] text-stone-700 font-semibold text-left transition-all shadow-2xs hover:shadow-xs active:scale-98 cursor-pointer flex flex-col gap-0.5 group"
             >
-              <span className="text-emerald-700 font-bold">2. Alex (Đã ghép đôi)</span>
+              <span className="text-emerald-700 font-bold group-hover:text-emerald-800 transition-colors">2. Alex (Đã ghép đôi)</span>
               <span className="text-[9px] text-stone-400">→ Vào thẳng Couple Home</span>
             </button>
-
-            
           </div>
         </div>
       </form>

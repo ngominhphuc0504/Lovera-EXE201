@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Heart, Lock, Mail, User as UserIcon, ArrowLeft, Eye, EyeOff, AlertCircle, UserPlus, CheckCircle2, Shield, Sparkles } from 'lucide-react';
+import loveraLogo from '../../assets/images/lovera_logo.png';
 import { playSound } from '../../utils/audio';
 import { authService } from '../../services/authService';
 import { VerifyOtpModal } from '../modals/VerifyOtpModal';
@@ -142,10 +143,10 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
             <ArrowLeft className="w-4 h-4" />
           </button>
           
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span className="text-[11px] font-bold text-rose-500 uppercase tracking-wider">
-              LOVERA AUTH API
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-rose-50 via-pink-50 to-purple-50 border border-rose-200/80 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-xs"></span>
+            <span className="font-display text-[12px] font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-600 via-pink-600 to-purple-600">
+              LOVERA
             </span>
           </div>
 
@@ -154,15 +155,17 @@ export const RegisterScreen: React.FC<RegisterScreenProps> = ({
 
         {/* Title */}
         <div className="text-center mt-3 mb-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-rose-500 to-purple-600 text-white mb-2 shadow-sm">
-            <UserPlus className="w-6 h-6" />
+          <div className="relative inline-flex items-center justify-center w-20 h-20 mb-1 mx-auto group">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-rose-400/20 via-pink-400/20 to-purple-400/20 blur-md group-hover:scale-105 transition-transform"></div>
+            <img
+              src={loveraLogo}
+              alt="LOVERA Logo"
+              className="relative w-20 h-20 object-contain drop-shadow-sm select-none"
+            />
           </div>
-          <h2 className="font-serif-romantic text-2xl font-bold text-stone-900">
+          <h2 className="font-serif-romantic text-2xl font-bold text-stone-900 tracking-tight">
             Tạo Tài Khoản Mới
           </h2>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Kết nối API Backend thực tế .NET 8 (Brevo OTP)
-          </p>
         </div>
       </div>
 
