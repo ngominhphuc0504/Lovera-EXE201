@@ -16,7 +16,8 @@ import {
 import { CoupleData, MemoryItem } from '../../types';
 import { INITIAL_ACTIVITY_OPTIONS, INITIAL_STATUS_OPTIONS } from '../../data/mockData';
 import { calculateTotalDays, formatVNDate, playSound } from '../../utils/audio';
-import { compressImageFile } from '../../utils/syncManager';
+import { AvatarUpload } from '../common/AvatarUpload';
+import { isGuid } from '../../utils/userDirectory';
 import { MemoryPhoto } from '../common/MemoryPhoto';
 
 const getStatusLabel = (status: CoupleData['userA']['status']) =>
@@ -26,6 +27,19 @@ const getActivityLabel = (activity?: CoupleData['userA']['activity']) =>
   activity
     ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === activity)?.label ?? activity
     : 'Chưa chọn hoạt động';
+
+const getCleanDisplayName = (name?: string, fallback = 'Người Thương') => {
+  if (!name) return fallback;
+  const t = name.trim();
+  if (!t || t === 'Người Thương' || t === 'Chưa kết nối' || isGuid(t)) {
+    if (typeof localStorage !== 'undefined') {
+      const saved = localStorage.getItem('lovera_partner_nickname');
+      if (saved && !isGuid(saved) && saved !== 'Người Thương') return saved;
+    }
+    return fallback;
+  }
+  return t;
+};
 
 interface HomeScreenProps {
   onUpdatePartnerNickname?: (newName: string) => void;
@@ -40,7 +54,7 @@ interface HomeScreenProps {
   onNavigateToPairing?: () => void;
   onNavigateToProfile?: () => void;
   onNavigateToShared?: () => void;
-  onUpdateAvatar?: (newAvatarUrl: string, file?: File) => void;
+  onUpdateAvatar?: (newAvatarUrl: string, file: File) => Promise<void>;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -61,44 +75,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const { userA, userB, startDate } = couple;
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    if (file.size > 15 * 1024 * 1024) {
-      alert('Kích thước ảnh tối đa là 15MB theo tiêu chuẩn hệ thống.');
-      return;
-    }
-
-    try {
-      const compressed = await compressImageFile(file, 300, 0.85);
-      onUpdateAvatar?.(compressed, file);
-      playSound('success');
-    } catch {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        if (base64) {
-          onUpdateAvatar?.(base64, file);
-          playSound('success');
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   // Nếu chưa ghép đôi, ẩn hoàn toàn ảnh người thứ hai và các chức năng cặp đôi
   if (!couple.isPaired) {
     return (
       <div className="min-h-full flex flex-col justify-center items-center p-6 text-stone-800 select-none">
         {/* Hidden file input for Alex's avatar */}
-        <input 
-          ref={fileInputRef} 
-          type="file" 
-          accept="image/*" 
-          className="hidden" 
-          onChange={handleAvatarChange} 
-        />
+        <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
 
         <div className="max-w-sm w-full bg-white/95 backdrop-blur-md rounded-3xl p-6 border border-rose-100 shadow-sm text-center space-y-4">
           <div 
@@ -187,13 +171,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <div className="min-h-full flex flex-col justify-evenly gap-2 py-2 text-stone-800 select-none">
       {/* Hidden file input for Alex's avatar in paired home */}
-      <input 
-        ref={fileInputRef} 
-        type="file" 
-        accept="image/*" 
-        className="hidden" 
-        onChange={handleAvatarChange} 
-      />
+      <AvatarUpload ref={fileInputRef} onSave={onUpdateAvatar} />
       
       {/* ------------------------------------------------------------- */}
       {/* CARD 1: COUPLE PROFILE (Alex & Sam & Connection Line)         */}
@@ -264,11 +242,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <div className="relative shrink-0">
               <div
                 className="w-11 h-11 rounded-full overflow-hidden ring-2 ring-purple-400 ring-offset-2 ring-offset-white shadow-xs"
-                title={userB.name}
+                title={getCleanDisplayName(userB.name)}
               >
                 <img
                   src={userB.avatar}
-                  alt={userB.name}
+                  alt={getCleanDisplayName(userB.name)}
                   onError={(e) => {
                     e.currentTarget.onerror = null;
                     e.currentTarget.src = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250';
@@ -298,13 +276,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   </span>
                 )}
                 <div className="flex items-center gap-1 min-w-0">
-                  <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{userB.name}</h3>
+                  <h3 className="min-w-0 font-bold text-xs text-stone-900 leading-tight [overflow-wrap:anywhere]">{getCleanDisplayName(userB.name)}</h3>
                   {onUpdatePartnerNickname && (
                     <button
                       type="button"
                       onClick={() => {
-                        const newName = prompt('Đổi biệt danh cho người ấy:', userB.name);
-                        if (newName && newName.trim()) {
+                        const defaultPromptVal = (userB.name && !isGuid(userB.name) && userB.name !== 'Người Thương') ? userB.name : (getCleanDisplayName(userB.name) !== 'Người Thương' ? getCleanDisplayName(userB.name) : '');
+                        const newName = prompt('Đổi biệt danh cho người ấy:', defaultPromptVal);
+                        if (newName && newName.trim() && !isGuid(newName.trim())) {
                           onUpdatePartnerNickname(newName.trim());
                         }
                       }}
@@ -394,6 +373,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {/* CARD 3: CONNECTION STATUS SUMMARY                             */}
       {/* ------------------------------------------------------------- */}
       <section aria-label="Trạng thái kết nối" className="mx-4 bg-white/95 backdrop-blur-md rounded-3xl p-3 border border-purple-100/90 shadow-xs">
+
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5 text-xs font-bold text-stone-800">
             <Clock className="w-3.5 h-3.5 text-purple-600" />
@@ -418,7 +398,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
 
           <div className="bg-purple-50/50 p-2.5 rounded-2xl border border-purple-100/80">
-            <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{userB.name}:</span>
+            <span className="text-[10px] text-purple-500 font-semibold block mb-0.5">{getCleanDisplayName(userB.name)}:</span>
             <div className="font-bold text-stone-900 flex items-center gap-1">
               <span>{userB.activity ? INITIAL_ACTIVITY_OPTIONS.find(option => option.type === userB.activity)?.icon : '💬'}</span>
               <span>{getStatusLabel(userB.status)}</span>

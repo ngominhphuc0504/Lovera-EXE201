@@ -69,9 +69,9 @@ export const INITIAL_ACTIVITY_OPTIONS: ConnectionActivityOption[] = [
 export const INITIAL_COUPLE: CoupleData = {
   coupleId: 'CP-LOVERA-2025',
   pairCode: 'LV8942',
-  startDate: '2025-09-22',
+  startDate: '2025-09-07',
   isPaired: true,
-  lovePoints: 1500,
+  lovePoints: 0,
   userA: {
     id: 'usr_alex',
     name: 'Alex',
