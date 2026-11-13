@@ -2174,12 +2174,8 @@ export default function App() {
     const myName = couple.userA.name;
     const myEmail = storedProfile?.email || couple.userA.email;
 
-    if (!isDemoMode) {
-      if (!getStoredToken()) throw new Error('Vui lòng đăng nhập lại để lưu ảnh đại diện.');
-      await authService.uploadAvatar(file);
-      if (!isCurrentSession(session)) throw new Error('Phiên đăng nhập đã thay đổi.');
-    }
-
+    // 1. Cập nhật ngay lập tức giao diện & LocalStorage (Optimistic Update)
+    // Đảm bảo ảnh đã crop/zoom được áp dụng ngay lập tức mà không bị kẹt khi backend 429 rate limit
     safeSetItem('lovera_my_avatar', newAvatarUrl);
     safeSetItem('lovera_alex_avatar', newAvatarUrl);
     if (myId) {
@@ -2214,9 +2210,19 @@ export default function App() {
       return u;
     }));
 
-
+    // 2. Gửi tệp ảnh đã crop lên máy chủ backend để lưu vĩnh viễn
+    if (!isDemoMode && getStoredToken()) {
+      try {
+        const profile = await authService.uploadAvatar(file);
+        if (profile?.avatarUrl && isCurrentSession(session)) {
+          saveUserAvatar('me', profile.avatarUrl);
+        }
+      } catch (err) {
+        console.warn('[App] uploadAvatar to backend rate limited or failed:', err);
+        // Không throw lỗi ra ngoài để tránh làm hỏng trạng thái avatar đã zoom của người dùng
+      }
+    }
   };
-
 
   const handleUnpair = async () => {
     const session = getSessionKey();
