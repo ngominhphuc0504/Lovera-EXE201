@@ -705,26 +705,9 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           </div>
 
           <div>
-            <div className="flex items-center gap-1.5">
-              <h2 className="text-sm font-bold text-stone-900 leading-tight">
-                Lovera AI Assistant
-              </h2>
-              <button
-                type="button"
-                onClick={handleOpenKeyModal}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 transition-all cursor-pointer ${
-                  geminiActive
-                    ? 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
-                    : isBackendConnected
-                    ? 'bg-gradient-to-r from-purple-50 via-pink-50 to-rose-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
-                    : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                }`}
-                title={geminiActive ? "Đang sử dụng Google Gemini 3.5 Flash" : (isBackendConnected ? "Đã kết nối Lovera Backend AI (Gemini 3.5 Flash)" : "Đang sử dụng Trợ lý Tình yêu Thông minh")}
-              >
-                <Sparkles className={`w-2.5 h-2.5 ${geminiActive || isBackendConnected ? 'text-purple-600' : 'text-emerald-500'}`} />
-                <span>{geminiActive ? 'Gemini 3.5 Flash ✨' : (isBackendConnected ? 'Backend AI (3.5 Flash)' : 'Trợ lý AI 💕')}</span>
-              </button>
-            </div>
+            <h2 className="text-sm font-bold text-stone-900 leading-tight">
+              Lovera AI Assistant
+            </h2>
             <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 shadow-2xs">
                 <ShieldCheck className="w-3 h-3 text-emerald-600" />
@@ -739,10 +722,10 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           <button
             type="button"
             onClick={handleOpenKeyModal}
-            title="Cài đặt Gemini API Key & Trạng thái Backend"
+            title={geminiActive ? "Đã kết nối API Key (Bấm để quản lý)" : "Cài đặt API Key kết nối AI"}
             className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
-              isBackendConnected || geminiActive
-                ? 'bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-600 shadow-2xs'
+              geminiActive
+                ? 'bg-purple-100 hover:bg-purple-200 border-purple-300 text-purple-700 shadow-xs'
                 : 'bg-stone-50 hover:bg-stone-100 border-stone-200 text-stone-500'
             }`}
           >
@@ -808,7 +791,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                   {!isUser && msg.isGemini && (
                     <div className="inline-flex items-center gap-1 mb-1.5 px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-100 via-pink-100 to-rose-100 text-purple-800 text-[10px] font-bold border border-purple-200/60 shadow-2xs">
                       <Sparkles className="w-3 h-3 text-purple-600 animate-spin [animation-duration:4s]" />
-                      <span>{isBackendConnected ? 'Lovera AI (Gemini 3.5 Flash)' : (geminiActive ? 'Gemini 3.5 Flash ✨' : 'Lovera AI Assistant')}</span>
+                      <span>Lovera AI Assistant</span>
                     </div>
                   )}
 
@@ -996,8 +979,8 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                   <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base leading-snug">Cấu Hình Google Gemini 3.5 Flash</h3>
-                  <p className="text-white/80 text-xs">Mô hình AI mới nhất kết nối đồng bộ cùng Lovera</p>
+                  <h3 className="font-bold text-base leading-snug">Cấu Hình Kết Nối AI (API Key)</h3>
+                  <p className="text-white/80 text-xs">Kết nối trợ lý thông minh Lovera AI</p>
                 </div>
               </div>
               <button
@@ -1015,17 +998,17 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                 <ShieldCheck className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
                 <div>
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="font-semibold text-purple-950">Lovera AI & Gemini 3.5 Flash</p>
+                    <p className="font-semibold text-purple-950">Lovera AI Assistant</p>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
                       isBackendConnected 
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
                         : 'bg-stone-100 text-stone-600 border-stone-200'
                     }`}>
-                      {isBackendConnected ? 'Backend AI Đang Hoạt Động' : 'Client Mode (3.5 Flash)'}
+                      {isBackendConnected ? 'Backend AI Đang Hoạt Động' : 'Client AI Mode'}
                     </span>
                   </div>
                   <p className="text-stone-600 text-[11px] leading-relaxed">
-                    Hệ thống hoạt động với mô hình <b>Gemini 3.5 Flash</b> (đã gỡ bỏ toàn bộ 1.5, 2.0, 2.5). Khi đăng nhập, ứng dụng kết nối trực tiếp với Lovera Backend AI hoặc sử dụng Google AI Studio API Key cá nhân.
+                    Khi đã đăng nhập, hệ thống tự động kết nối với Lovera Backend AI. Bạn có thể dán thêm Google AI Studio API Key cá nhân vào đây để kết nối trực tiếp.
                   </p>
                 </div>
               </div>
