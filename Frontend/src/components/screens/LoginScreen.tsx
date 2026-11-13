@@ -102,28 +102,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
   };
 
-  // Quick preset helper for tester/demo
-  const handleQuickPreset = (presetEmail: string, presetPass: string, alreadyPaired: boolean) => {
-    setEmail(presetEmail);
-    setPassword(presetPass);
-    setError('');
-    playSound('chime');
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      playSound('success');
-      const name = presetEmail.startsWith('alex') ? 'Alex' : 'Sam';
-      onLoginSuccess(presetEmail, name, alreadyPaired, true);
-    }, 400);
-  };
-
   // Continue demo/offline mode
   const handleBypassToDemo = () => {
     playSound('chime');
     const isPaired = email.toLowerCase().includes('paired');
-    const name = email.split('@')[0] || 'Alex';
+    const name = email.split('@')[0] || 'User';
     const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1);
-    onLoginSuccess(email.trim() || 'alex@lovera.app', capitalizedName, isPaired, true);
+    onLoginSuccess(email.trim() || 'user@lovera.app', capitalizedName, isPaired, true);
   };
 
   return (
@@ -205,7 +190,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 setEmail(e.target.value);
                 if (error) setError('');
               }}
-              placeholder="alex@lovera.app hoặc admin@lovera.app"
+              placeholder="email@example.com hoặc admin@lovera.app"
               className="w-full text-xs font-medium pl-10 pr-4 py-3 bg-white rounded-2xl border border-stone-200 text-stone-800 focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-2xs"
             />
           </div>
@@ -255,34 +240,6 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </>
           )}
         </button>
-
-        {/* Quick Test Demo Presets */}
-        <div className="pt-2">
-          <div className="flex items-center justify-center gap-1.5 mb-2">
-            <Sparkles className="w-3 h-3 text-rose-400" />
-            <span className="text-[10px] uppercase tracking-wider text-stone-400 font-bold">
-              Lối tắt kiểm thử nhanh cho Tester
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickPreset('alex.new@lovera.app', 'password123', false)}
-              className="p-2.5 bg-gradient-to-br from-white to-rose-50/40 hover:to-rose-100/60 rounded-2xl border border-rose-100 hover:border-rose-300 text-[10px] text-stone-700 font-semibold text-left transition-all shadow-2xs hover:shadow-xs active:scale-98 cursor-pointer flex flex-col gap-0.5 group"
-            >
-              <span className="text-rose-600 font-bold group-hover:text-rose-700 transition-colors">1. Alex (Chưa kết nối)</span>
-              <span className="text-[9px] text-stone-400">→ Chuyển đến Pairing</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickPreset('alex.paired@lovera.app', 'password123', true)}
-              className="p-2.5 bg-gradient-to-br from-white to-emerald-50/40 hover:to-emerald-100/60 rounded-2xl border border-emerald-100 hover:border-emerald-300 text-[10px] text-stone-700 font-semibold text-left transition-all shadow-2xs hover:shadow-xs active:scale-98 cursor-pointer flex flex-col gap-0.5 group"
-            >
-              <span className="text-emerald-700 font-bold group-hover:text-emerald-800 transition-colors">2. Alex (Đã ghép đôi)</span>
-              <span className="text-[9px] text-stone-400">→ Vào thẳng Couple Home</span>
-            </button>
-          </div>
-        </div>
       </form>
 
       {/* Footer Switcher */}
