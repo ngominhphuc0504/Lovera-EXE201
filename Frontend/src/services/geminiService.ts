@@ -120,9 +120,11 @@ Cách viết tin nhắn làm lành chân thành`;
     let responseText = '';
     let lastError: unknown = null;
 
+    const isBearer = apiKey.startsWith('AQ.') || apiKey.startsWith('ya29.') || apiKey.startsWith('Bearer ');
+    const cleanToken = apiKey.replace(/^Bearer\s+/i, '').trim();
+
     for (const model of modelsToTry) {
       try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
         const body: any = {
           contents: validContents,
           generationConfig: {
@@ -136,25 +138,42 @@ Cách viết tin nhắn làm lành chân thành`;
           };
         }
 
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(body)
-        });
+        // Thử cả 2 dạng: API Key (?key=...) và OAuth Token (Authorization: Bearer ...)
+        const requestAttempts: Array<{ url: string; headers: Record<string, string> }> = isBearer
+          ? [
+              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cleanToken}` } },
+              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanToken)}`, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cleanToken } }
+            ]
+          : [
+              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanToken)}`, headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cleanToken } },
+              { url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cleanToken}` } }
+            ];
 
-        if (res.ok) {
-          const data = await res.json();
-          const textCandidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (textCandidate && typeof textCandidate === 'string' && textCandidate.trim()) {
-            responseText = textCandidate;
-            break;
+        for (const req of requestAttempts) {
+          try {
+            const res = await fetch(req.url, {
+              method: 'POST',
+              headers: req.headers,
+              body: JSON.stringify(body)
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              const textCandidate = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (textCandidate && typeof textCandidate === 'string' && textCandidate.trim()) {
+                responseText = textCandidate;
+                break;
+              }
+            } else {
+              const errText = await res.text();
+              console.warn(`Gemini ${model} call failed (${res.status}):`, errText);
+            }
+          } catch (fetchErr) {
+            console.warn(`Gemini fetch attempt failed:`, fetchErr);
           }
-        } else {
-          const errText = await res.text();
-          console.warn(`Gemini ${model} returned HTTP ${res.status}:`, errText);
         }
+
+        if (responseText) break;
       } catch (err) {
         lastError = err;
         console.warn(`Gemini model ${model} call failed, trying next:`, err);

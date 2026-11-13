@@ -70,32 +70,74 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   onEarnPoints,
 }) => {
   const storedProfile = getStoredUserProfile<{ id?: string; email?: string; displayName?: string }>();
-  const currentUserId = (
-    couple.userA.id ||
-    storedProfile?.id ||
-    couple.userA.email ||
-    couple.userA.name ||
-    'user_default'
-  ).toLowerCase().trim();
-
-  const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    try {
-      localStorage.removeItem('lovera_chat_history');
-      localStorage.removeItem('lovera_active_ai_conv_id');
-      const saved = localStorage.getItem(`lovera_chat_history_${currentUserId}`);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Fallback to default
+  
+  // Lấy User ID chuẩn xác & ổn định nhất, ưu tiên profile thực tế, không phụ thuộc vào mock 'usr_alex'
+  const resolveStableUserId = (): string => {
+    if (storedProfile?.id && storedProfile.id !== 'usr_alex') {
+      return storedProfile.id.toLowerCase().trim();
     }
+    if (couple.userA.id && couple.userA.id !== 'usr_alex' && couple.userA.id.trim() !== '') {
+      return couple.userA.id.toLowerCase().trim();
+    }
+    if (storedProfile?.email) {
+      return storedProfile.email.toLowerCase().trim();
+    }
+    if (couple.userA.email) {
+      return couple.userA.email.toLowerCase().trim();
+    }
+    if (couple.userA.name && couple.userA.name !== 'Alex' && couple.userA.name !== 'Chưa đăng nhập') {
+      return couple.userA.name.toLowerCase().trim();
+    }
+    return 'default_user';
+  };
+
+  const currentUserId = resolveStableUserId();
+
+  // Nạp tin nhắn từ LocalStorage với cơ chế tìm kiếm đa tầng để KHÔNG BAO GIỜ bị mất lịch sử khi F5
+  const getPersistedMessages = (): ChatMessage[] => {
+    try {
+      const candidateKeys = [
+        `lovera_chat_history_${currentUserId}`,
+        couple.userA.id && couple.userA.id !== 'usr_alex' ? `lovera_chat_history_${couple.userA.id.toLowerCase().trim()}` : null,
+        storedProfile?.id && storedProfile.id !== 'usr_alex' ? `lovera_chat_history_${storedProfile.id.toLowerCase().trim()}` : null,
+        couple.userA.name && couple.userA.name !== 'Alex' ? `lovera_chat_history_${couple.userA.name.toLowerCase().trim()}` : null,
+        storedProfile?.email ? `lovera_chat_history_${storedProfile.email.toLowerCase().trim()}` : null,
+        'lovera_chat_history_usr_alex',
+        'lovera_chat_history',
+      ].filter(Boolean) as string[];
+
+      for (const k of candidateKeys) {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            localStorage.setItem(`lovera_chat_history_${currentUserId}`, raw);
+            return parsed;
+          }
+        }
+      }
+    } catch {}
     return getInitialMessages(couple.userA.name);
-  });
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => getPersistedMessages());
 
   const [conversationId, setConversationId] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(`lovera_active_ai_conv_id_${currentUserId}`);
+      const candidateKeys = [
+        `lovera_active_ai_conv_id_${currentUserId}`,
+        `lovera_active_ai_conv_id_${couple.userA.name?.toLowerCase().trim()}`,
+        'lovera_active_ai_conv_id_usr_alex',
+        'lovera_active_ai_conv_id',
+      ].filter(Boolean) as string[];
+      for (const k of candidateKeys) {
+        const v = localStorage.getItem(k);
+        if (v) return v;
+      }
     } catch {
       return null;
     }
+    return null;
   });
   const [isBackendConnected, setIsBackendConnected] = useState<boolean>(false);
   const [input, setInput] = useState('');
@@ -110,21 +152,15 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Khi chuyển tài khoản hoặc đối tác, nạp đúng lịch sử chat riêng tư của user đó
+  // Chỉ khi đổi tài khoản thực sự mới đổi bộ tin nhắn
+  const prevUserIdRef = useRef<string>(currentUserId);
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(`lovera_chat_history_${currentUserId}`);
-      if (saved) {
-        setMessages(JSON.parse(saved));
-      } else {
-        setMessages(getInitialMessages(couple.userA.name));
-      }
-      const savedConv = localStorage.getItem(`lovera_active_ai_conv_id_${currentUserId}`);
-      setConversationId(savedConv || null);
-    } catch {
-      setMessages(getInitialMessages(couple.userA.name));
+    if (prevUserIdRef.current !== currentUserId) {
+      prevUserIdRef.current = currentUserId;
+      const msgs = getPersistedMessages();
+      setMessages(msgs);
     }
-  }, [currentUserId, couple.userA.name]);
+  }, [currentUserId]);
 
   // Synchronize conversation and message history with Lovera Backend AI
   useEffect(() => {
@@ -192,10 +228,21 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
               sources: m.sources?.map(s => ({ url: s.url, title: s.title }))
             };
           });
-          setMessages(mapped);
-          try {
-            localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(mapped));
-          } catch {}
+
+          // AN TOÀN TUYỆT ĐỐI: Không bao giờ ghi đè làm mất tin nhắn của người dùng!
+          setMessages(prev => {
+            if (!prev || prev.length <= 1) return mapped;
+            const localUserMsgs = prev.filter(m => m.sender === 'user');
+            const backendUserMsgs = mapped.filter(m => m.sender === 'user');
+            // Nếu local có nhiều tin nhắn hơn backend (ví dụ: các tin nhắn offline / chưa lên backend), giữ nguyên local!
+            if (localUserMsgs.length > backendUserMsgs.length) {
+              return prev;
+            }
+            try {
+              localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(mapped));
+            } catch {}
+            return mapped;
+          });
         }
       } catch (err) {
         console.warn('[ChatbotScreen] Backend AI offline or unauthenticated, fallback to Gemini mode:', err);
@@ -232,6 +279,21 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
   // Intelligent Response Generator based on romantic couple domain
   const generateBotReply = (userQuery: string): { text: string; suggestions: string[] } => {
     const q = userQuery.toLowerCase();
+
+    // 0. Travel / Directions & Locations (Lê Văn Việt -> Vinhomes Grand Park Q9)
+    if (
+      (q.includes('lê văn việt') || q.includes('vinhome') || q.includes('vinhomes') || q.includes('q9') || q.includes('quận 9') || q.includes('thủ đức')) &&
+      (q.includes('bao lâu') || q.includes('mất bao lâu') || q.includes('đi') || q.includes('đường') || q.includes('xuống') || q.includes('qua'))
+    ) {
+      return {
+        text: `Từ **đường Lê Văn Việt (Quận 9 / TP. Thủ Đức)** xuống **Vinhomes Grand Park (Nguyễn Xiển / Phước Thiện)**:\n\n🛵 **Thời gian di chuyển bằng xe máy:** Mất khoảng **15 - 20 phút** (khoảng cách tầm 6 - 8 km trong điều kiện giao thông bình thường).\n🚗 **Đi bằng ô tô / GrabCar:** Mất khoảng **15 - 25 phút** tùy mật độ xe.\n\n🛣️ **Lộ trình đi thuận tiện & dễ đi nhất cho hai bạn:**\n1. Chạy thẳng đường **Lê Văn Việt** về hướng ngã ba Mỹ Thành.\n2. Rẽ vào đường **Nguyễn Văn Tăng**.\n3. Đi thẳng tiếp nối vào đường **Nguyễn Xiển** là tới cổng chào khu đô thị **Vinhomes Grand Park**.\n\n✨ **Gợi ý hẹn hò tại Vinhomes Grand Park:**\n• Buổi tối tại công viên ánh sáng 36ha và bãi cỏ dã ngoại rất thoáng mát, lãng mạn.\n• Hai bạn có thể mua trà sữa trên đường Lê Văn Việt mang vào, vừa dạo mát ven hồ vừa trò chuyện ngắm cảnh nhé! 💕`,
+        suggestions: [
+          'Gợi ý quán ăn ngon trên đường Lê Văn Việt',
+          'Chỗ check-in đẹp tại Vinhomes Grand Park',
+          'Gợi ý quán cà phê view đẹp Quận 9'
+        ]
+      };
+    }
 
     // 1. Dating Ideas & Locations
     if (q.includes('hẹn hò') || q.includes('đi chơi') || q.includes('cuối tuần') || q.includes('buổi hẹn') || q.includes('ở đâu') || q.includes('quán')) {
@@ -359,16 +421,44 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     setIsKeyModalOpen(true);
   };
 
-  const handleSaveKey = () => {
-    setGeminiApiKey(apiKeyInput);
-    const active = isGeminiConfigured();
-    setGeminiActive(active);
-    setSaveStatus(active ? 'Đã kích hoạt Gemini AI thành công! ✨' : 'Đã xóa API Key');
-    playSound('chime');
-    setTimeout(() => {
-      setIsKeyModalOpen(false);
-      setSaveStatus(null);
-    }, 800);
+  const handleSaveKey = async () => {
+    const key = apiKeyInput.trim();
+    setGeminiApiKey(key);
+    if (!key) {
+      setGeminiActive(false);
+      setSaveStatus('Đã xóa API Key');
+      playSound('click');
+      setTimeout(() => {
+        setIsKeyModalOpen(false);
+        setSaveStatus(null);
+      }, 800);
+      return;
+    }
+
+    setSaveStatus('Đang kiểm tra kết nối Google Gemini...');
+    try {
+      const testRes = await generateGeminiReply(
+        'Xin chào bạn',
+        [],
+        couple,
+        () => ({ text: '', suggestions: [] })
+      );
+      if (testRes.isGeminiPowered) {
+        setGeminiActive(true);
+        setSaveStatus('✅ Đã kết nối Google Gemini thành công! ✨');
+        playSound('chime');
+        setTimeout(() => {
+          setIsKeyModalOpen(false);
+          setSaveStatus(null);
+        }, 1200);
+      } else {
+        setGeminiActive(false);
+        setSaveStatus('⚠️ Không thể xác thực key. Vui lòng lấy API Key bắt đầu bằng AIzaSy... tại Google AI Studio.');
+      }
+    } catch (err: any) {
+      setGeminiActive(false);
+      setSaveStatus('⚠️ Lỗi kết nối: ' + (err?.message || 'Không thể xác thực API Key'));
+    }
   };
 
   const handleRemoveKey = () => {
@@ -395,8 +485,11 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
       timestamp: 'Vừa xong'
     };
 
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
+    const updatedWithUser = [...messages, userMsg];
+    setMessages(updatedWithUser);
+    try {
+      localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(updatedWithUser));
+    } catch {}
     setInput('');
     setIsTyping(true);
 
@@ -440,24 +533,30 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           sources: res.assistantMessage.sources?.map(s => ({ url: s.url, title: s.title }))
         };
 
-        setMessages(prev => [...prev, botMsg]);
+        const finalWithBot = [...updatedWithUser, botMsg];
+        setMessages(finalWithBot);
+        try {
+          localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
+        } catch {}
         playSound('chime');
         onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
         setIsTyping(false);
         return;
       } catch (backendErr: any) {
         console.warn('[ChatbotScreen] Backend AI request failed:', backendErr);
+        setIsBackendConnected(false);
 
         // If user has configured a Gemini API key on client, use dynamic Gemini AI directly
         if (isGeminiConfigured()) {
           try {
             const replyData = await generateGeminiReply(
               query,
-              updatedMessages,
+              updatedWithUser,
               couple,
               generateBotReply
             );
             if (replyData.isGeminiPowered) {
+              setGeminiActive(true);
               const botMsg: ChatMessage = {
                 id: `bot_${Date.now()}`,
                 sender: 'bot',
@@ -466,7 +565,11 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                 suggestions: replyData.suggestions,
                 isGemini: true
               };
-              setMessages(prev => [...prev, botMsg]);
+              const finalWithBot = [...updatedWithUser, botMsg];
+              setMessages(finalWithBot);
+              try {
+                localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
+              } catch {}
               playSound('chime');
               onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
               setIsTyping(false);
@@ -488,7 +591,11 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
           suggestions: fallback.suggestions,
           isGemini: false
         };
-        setMessages(prev => [...prev, botMsg]);
+        const finalWithBot = [...updatedWithUser, botMsg];
+        setMessages(finalWithBot);
+        try {
+          localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
+        } catch {}
         playSound('chime');
         onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
         setIsTyping(false);
@@ -500,7 +607,7 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
     try {
       const replyData = await generateGeminiReply(
         query,
-        updatedMessages,
+        updatedWithUser,
         couple,
         generateBotReply
       );
@@ -514,7 +621,11 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
         isGemini: replyData.isGeminiPowered
       };
 
-      setMessages(prev => [...prev, botMsg]);
+      const finalWithBot = [...updatedWithUser, botMsg];
+      setMessages(finalWithBot);
+      try {
+        localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
+      } catch {}
       playSound('chime');
       onEarnPoints?.(5, 'Trò chuyện cùng Lovera AI');
     } catch (err) {
@@ -528,7 +639,11 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
         suggestions: fallback.suggestions,
         isGemini: false
       };
-      setMessages(prev => [...prev, botMsg]);
+      const finalWithBot = [...updatedWithUser, botMsg];
+      setMessages(finalWithBot);
+      try {
+        localStorage.setItem(`lovera_chat_history_${currentUserId}`, JSON.stringify(finalWithBot));
+      } catch {}
       playSound('chime');
     } finally {
       setIsTyping(false);
@@ -593,16 +708,16 @@ export const ChatbotScreen: React.FC<ChatbotScreenProps> = ({
                 type="button"
                 onClick={handleOpenKeyModal}
                 className={`text-[10px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 transition-all cursor-pointer ${
-                  isBackendConnected
-                    ? 'bg-gradient-to-r from-purple-50 via-pink-50 to-rose-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
-                    : geminiActive
+                  geminiActive
                     ? 'bg-gradient-to-r from-purple-50 to-pink-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
-                    : 'bg-stone-50 text-stone-500 border-stone-200 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200'
+                    : isBackendConnected
+                    ? 'bg-gradient-to-r from-purple-50 via-pink-50 to-rose-50 text-purple-700 border-purple-200 shadow-2xs hover:border-purple-300'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
                 }`}
-                title={isBackendConnected ? "Đã kết nối Lovera Backend AI Server" : "Cấu hình Google Gemini AI"}
+                title={geminiActive ? "Đang sử dụng Google Gemini AI" : (isBackendConnected ? "Đã kết nối Backend AI" : "Đang sử dụng Trợ lý Tình yêu Thông minh")}
               >
-                <Sparkles className={`w-2.5 h-2.5 ${isBackendConnected || geminiActive ? 'text-purple-600' : 'text-stone-400'}`} />
-                <span>{isBackendConnected ? 'Backend AI' : (geminiActive ? 'Gemini 2.5' : 'Bật Gemini')}</span>
+                <Sparkles className={`w-2.5 h-2.5 ${geminiActive || isBackendConnected ? 'text-purple-600' : 'text-emerald-500'}`} />
+                <span>{geminiActive ? 'Gemini AI ✨' : (isBackendConnected ? 'Backend AI' : 'Trợ lý AI 💕')}</span>
               </button>
             </div>
             <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
