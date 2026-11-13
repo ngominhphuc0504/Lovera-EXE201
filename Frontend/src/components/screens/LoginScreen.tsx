@@ -116,39 +116,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       
       {/* Top Navigation */}
       <div>
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex items-center justify-between pt-1">
           <button
             onClick={() => {
               playSound('click');
               onBackToWelcome();
             }}
-            className="w-10 h-10 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
+            className="w-9 h-9 rounded-2xl bg-white hover:bg-stone-100 text-stone-700 border border-stone-200/80 flex items-center justify-center transition-colors active:scale-95 shadow-2xs cursor-pointer"
             title="Quay lại"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-rose-50 via-pink-50 to-purple-50 border border-rose-200/80 shadow-2xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-xs"></span>
-            <span className="font-display text-[12px] font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-600 via-pink-600 to-purple-600">
-              LOVERA
-            </span>
-          </div>
-
-          <div className="w-10"></div>
+          <div className="w-9"></div>
         </div>
 
-        {/* Title & Logo */}
-        <div className="text-center mt-3 mb-2">
-          <div className="relative inline-flex items-center justify-center w-20 h-20 mb-1 mx-auto group">
-            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-rose-400/20 via-pink-400/20 to-purple-400/20 blur-md group-hover:scale-105 transition-transform"></div>
-            <img
-              src={loveraLogo}
-              alt="LOVERA Logo"
-              className="relative w-20 h-20 object-contain drop-shadow-sm select-none"
-            />
+        {/* Brand Header & Logo */}
+        <div className="text-center mt-0.5 mb-2">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-500 via-rose-600 to-purple-600 text-white shadow-md shadow-rose-500/25 mb-1.5 animate-soft-float">
+            <Heart className="w-7 h-7 fill-white animate-heart-pulse" />
           </div>
-          <h2 className="font-serif-romantic text-2xl font-bold text-stone-900 tracking-tight">
+          <h1 className="font-serif-romantic text-2xl font-bold tracking-tight text-stone-900 leading-tight">
+            LOVERA
+          </h1>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-rose-500 mt-0.5">
+            COUPLE RELATIONSHIP APP
+          </p>
+          <h2 className="font-serif-romantic text-lg font-bold text-stone-800 mt-2">
             Đăng Nhập
           </h2>
         </div>
