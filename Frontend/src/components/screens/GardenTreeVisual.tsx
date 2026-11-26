@@ -1,5 +1,9 @@
 import React from 'react';
 import { GardenSeason, GardenStage } from '../../types';
+import treeStage5Spring from '../../assets/images/tree_stage5_spring.png';
+import treeStage5Summer from '../../assets/images/tree_stage5_summer.png';
+import treeStage5Autumn from '../../assets/images/tree_stage5_autumn.png';
+import treeStage5Winter from '../../assets/images/tree_stage5_winter.png';
 
 interface GardenTreeVisualProps {
   stage: GardenStage;
@@ -8,12 +12,82 @@ interface GardenTreeVisualProps {
   userBName: string;
 }
 
+const STAGE5_IMAGES: Record<GardenSeason, string> = {
+  spring: treeStage5Spring,
+  summer: treeStage5Summer,
+  autumn: treeStage5Autumn,
+  winter: treeStage5Winter,
+};
+
 export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
   stage,
   season,
   userAName,
   userBName,
 }) => {
+  // If Stage 5 (Cổ Thụ Bách Niên Bốn Mùa), display the masterpiece bonsai artwork synchronized with seasons
+  if (stage === 5) {
+    const currentImg = STAGE5_IMAGES[season] || treeStage5Spring;
+
+    return (
+      <div className="relative w-full max-w-[340px] h-[260px] sm:h-[280px] flex items-center justify-center select-none">
+        {/* Soft magical seasonal aura */}
+        <div
+          className={`absolute inset-0 rounded-full blur-2xl opacity-40 pointer-events-none transition-all duration-700 ${
+            season === 'spring'
+              ? 'bg-pink-300'
+              : season === 'summer'
+              ? 'bg-emerald-300'
+              : season === 'autumn'
+              ? 'bg-amber-300'
+              : 'bg-sky-200'
+          }`}
+        />
+
+        {/* Masterpiece Bonsai Ancient Tree */}
+        <img
+          key={season}
+          src={currentImg}
+          alt={`Cổ Thụ Bách Niên Bốn Mùa - ${season}`}
+          className="relative z-10 max-w-full max-h-full object-contain drop-shadow-xl animate-fade-in transition-transform duration-500 hover:scale-[1.02]"
+          draggable={false}
+        />
+
+        {/* Ambient floating seasonal particles (sparkles / petals) */}
+        <div className="absolute inset-0 pointer-events-none z-20 overflow-hidden">
+          {season === 'spring' && (
+            <>
+              <span className="absolute top-6 left-8 text-sm animate-bounce opacity-80">🌸</span>
+              <span className="absolute top-12 right-6 text-xs animate-pulse opacity-75">✨</span>
+              <span className="absolute bottom-14 left-10 text-xs animate-soft-float opacity-70">🌸</span>
+            </>
+          )}
+          {season === 'summer' && (
+            <>
+              <span className="absolute top-6 right-8 text-xs animate-pulse opacity-85">✨</span>
+              <span className="absolute top-14 left-6 text-xs animate-bounce opacity-75">☀️</span>
+              <span className="absolute bottom-14 right-10 text-xs animate-soft-float opacity-70">🌿</span>
+            </>
+          )}
+          {season === 'autumn' && (
+            <>
+              <span className="absolute top-6 left-8 text-sm animate-bounce opacity-80">🍁</span>
+              <span className="absolute top-12 right-6 text-xs animate-pulse opacity-75">🍂</span>
+              <span className="absolute bottom-14 left-10 text-xs animate-soft-float opacity-70">✨</span>
+            </>
+          )}
+          {season === 'winter' && (
+            <>
+              <span className="absolute top-6 right-8 text-xs animate-pulse opacity-85">❄️</span>
+              <span className="absolute top-14 left-6 text-xs animate-bounce opacity-75">⭐</span>
+              <span className="absolute bottom-14 right-10 text-xs animate-soft-float opacity-70">❄️</span>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative w-full max-w-[340px] h-[250px] sm:h-[270px] flex items-center justify-center select-none">
       
@@ -61,15 +135,35 @@ export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
             <stop offset="100%" stopColor="#1B0E09" />
           </linearGradient>
 
-          {/* Leaf Gradients - Standard Green (Summer / General) */}
+          {/* Leaf Gradients - Dynamically synchronized with season */}
           <linearGradient id="leafSummer1" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#4ADE80" />
-            <stop offset="100%" stopColor="#15803D" />
+            <stop offset="0%" stopColor={
+              season === 'spring' ? '#FBCFE8' :
+              season === 'autumn' ? '#FDE047' :
+              season === 'winter' ? '#E0F2FE' : '#4ADE80'
+            } />
+            <stop offset="100%" stopColor={
+              season === 'spring' ? '#DB2777' :
+              season === 'autumn' ? '#C2410C' :
+              season === 'winter' ? '#0F766E' : '#15803D'
+            } />
           </linearGradient>
           <linearGradient id="leafSummer2" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#86EFAC" />
-            <stop offset="50%" stopColor="#22C55E" />
-            <stop offset="100%" stopColor="#166534" />
+            <stop offset="0%" stopColor={
+              season === 'spring' ? '#FCE7F3' :
+              season === 'autumn' ? '#FEF08A' :
+              season === 'winter' ? '#FFFFFF' : '#86EFAC'
+            } />
+            <stop offset="50%" stopColor={
+              season === 'spring' ? '#F472B6' :
+              season === 'autumn' ? '#FB923C' :
+              season === 'winter' ? '#38BDF8' : '#22C55E'
+            } />
+            <stop offset="100%" stopColor={
+              season === 'spring' ? '#BE185D' :
+              season === 'autumn' ? '#991B1B' :
+              season === 'winter' ? '#115E59' : '#166534'
+            } />
           </linearGradient>
 
           {/* Spring Sakura Gradients */}
@@ -130,51 +224,17 @@ export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
         </defs>
 
         {/* ============================================================= */}
-        {/* AMBIENT AURAS & BACKGROUND GLOW ACCORDING TO STAGE & SEASON    */}
+        {/* AMBIENT AURAS & BACKGROUND GLOW ACCORDING TO STAGE            */}
         {/* ============================================================= */}
-        {stage >= 4 && (
+        {stage === 4 && (
           <ellipse
             cx="170"
             cy="120"
-            rx={stage === 5 ? 115 : 95}
-            ry={stage === 5 ? 85 : 70}
-            className={`transition-all duration-700 ${
-              stage === 5
-                ? season === 'spring'
-                  ? 'fill-pink-300/30'
-                  : season === 'autumn'
-                  ? 'fill-amber-400/25'
-                  : season === 'winter'
-                  ? 'fill-cyan-300/25'
-                  : 'fill-emerald-400/25'
-                : 'fill-emerald-300/20'
-            }`}
+            rx={95}
+            ry={70}
+            className="transition-all duration-700 fill-emerald-300/20"
             filter="url(#softGlow)"
           />
-        )}
-
-        {/* Celestial Ring for Stage 5 */}
-        {stage === 5 && (
-          <g className="animate-spin [animation-duration:35s] origin-[170px_115px] opacity-75">
-            <circle
-              cx="170"
-              cy="115"
-              r="92"
-              stroke={
-                season === 'spring'
-                  ? '#F472B6'
-                  : season === 'autumn'
-                  ? '#FB923C'
-                  : season === 'winter'
-                  ? '#38BDF8'
-                  : '#4ADE80'
-              }
-              strokeWidth="1.5"
-              strokeDasharray="6 8"
-              fill="none"
-              opacity="0.6"
-            />
-          </g>
         )}
 
         {/* ============================================================= */}
@@ -375,7 +435,21 @@ export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
 
             {/* Tree Canopy - Multi-layered Domes */}
             {/* Layer 1 (Back shadow) */}
-            <ellipse cx="170" cy="115" rx="72" ry="50" fill="#14532D" />
+            <ellipse
+              cx="170"
+              cy="115"
+              rx={72}
+              ry={50}
+              fill={
+                season === 'spring'
+                  ? '#9D174D'
+                  : season === 'autumn'
+                  ? '#7C2D12'
+                  : season === 'winter'
+                  ? '#064E3B'
+                  : '#14532D'
+              }
+            />
             
             {/* Layer 2 (Mid Foliage) */}
             <circle cx="125" cy="118" r="36" fill="url(#leafSummer2)" />
@@ -401,136 +475,7 @@ export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
           </g>
         )}
 
-        {/* ============================================================= */}
-        {/* STAGE 5: CỔ THỤ BÁCH NIÊN BỐN MÙA (DIVINE 4-SEASONS TREE)      */}
-        {/* ============================================================= */}
-        {stage === 5 && (
-          <g className="animate-soft-float origin-bottom">
-            {/* Intertwined Double Trunk (Alex & Sam wrapped in love) */}
-            <path
-              d="M148 204 C152 170, 142 145, 125 110 C145 118, 160 125, 165 145 C170 125, 185 118, 215 110 C198 145, 188 170, 192 204 Z"
-              fill="url(#trunkAncientGrad)"
-              stroke="#381E0C"
-              strokeWidth="2"
-            />
-            {/* Swirling vine & bark ribbons */}
-            <path
-              d="M152 195 Q175 165 160 135 Q180 145 190 195"
-              stroke="#C084FC"
-              strokeWidth="1.5"
-              fill="none"
-              strokeDasharray="4 4"
-              opacity="0.8"
-            />
 
-            {/* Couple's golden heart locket on trunk */}
-            <g transform="translate(170, 168)">
-              <circle cx="0" cy="0" r="9" fill="url(#goldRimGrad)" stroke="#B45309" strokeWidth="1" />
-              <path
-                d="M0 -3 C-3 -7, -7 -5, -6 0 C-5 5, 0 8, 0 8 C0 8, 5 5, 6 0 C7 -5, 3 -7, 0 -3 Z"
-                fill="#DC2626"
-              />
-            </g>
-
-            {/* --- SEASONAL FOLIAGE CANOPY --- */}
-
-            {/* 1. SPRING SAKURA CANOPY */}
-            {season === 'spring' && (
-              <g>
-                <ellipse cx="170" cy="105" rx="82" ry="56" fill="#9D174D" opacity="0.4" />
-                <circle cx="118" cy="110" r="42" fill="url(#sakuraCanopy2)" />
-                <circle cx="222" cy="110" r="42" fill="url(#sakuraCanopy2)" />
-                <circle cx="140" cy="72" r="45" fill="url(#sakuraCanopy1)" />
-                <circle cx="200" cy="72" r="45" fill="url(#sakuraCanopy1)" />
-                <circle cx="170" cy="55" r="42" fill="url(#sakuraCanopy2)" />
-                <ellipse cx="170" cy="90" rx="65" ry="42" fill="url(#sakuraCanopy1)" />
-
-                {/* Sakura blossoms clusters */}
-                <text x="135" y="85" className="text-[14px]">🌸</text>
-                <text x="195" y="85" className="text-[14px]">🌸</text>
-                <text x="165" y="55" className="text-[16px]">🌸</text>
-                <text x="110" y="115" className="text-[12px]">🌺</text>
-                <text x="215" y="115" className="text-[12px]">🌺</text>
-                <text x="165" y="105" className="text-[14px]">💖</text>
-              </g>
-            )}
-
-            {/* 2. SUMMER EDEN CANOPY */}
-            {season === 'summer' && (
-              <g>
-                <ellipse cx="170" cy="105" rx="82" ry="56" fill="#064E3B" opacity="0.4" />
-                <circle cx="118" cy="110" r="42" fill="url(#leafSummer2)" />
-                <circle cx="222" cy="110" r="42" fill="url(#leafSummer2)" />
-                <circle cx="140" cy="72" r="45" fill="url(#leafSummer1)" />
-                <circle cx="200" cy="72" r="45" fill="url(#leafSummer1)" />
-                <circle cx="170" cy="55" r="42" fill="url(#leafSummer2)" />
-                <ellipse cx="170" cy="90" rx="65" ry="42" fill="url(#leafSummer1)" />
-
-                {/* Summer fruits & fireflies */}
-                <circle cx="130" cy="95" r="8" fill="url(#appleGrad)" />
-                <circle cx="210" cy="95" r="8" fill="url(#appleGrad)" />
-                <circle cx="170" cy="55" r="9" fill="url(#appleGrad)" />
-                <circle cx="150" cy="115" r="7" fill="#FBBF24" />
-                <circle cx="190" cy="115" r="7" fill="#FBBF24" />
-
-                <text x="163" y="95" className="text-[14px] animate-pulse">✨</text>
-                <text x="120" y="65" className="text-[12px] animate-bounce">☀️</text>
-              </g>
-            )}
-
-            {/* 3. AUTUMN GOLDEN MAPLE CANOPY */}
-            {season === 'autumn' && (
-              <g>
-                <ellipse cx="170" cy="105" rx="82" ry="56" fill="#7C2D12" opacity="0.4" />
-                <circle cx="118" cy="110" r="42" fill="url(#autumnCanopy2)" />
-                <circle cx="222" cy="110" r="42" fill="url(#autumnCanopy2)" />
-                <circle cx="140" cy="72" r="45" fill="url(#autumnCanopy1)" />
-                <circle cx="200" cy="72" r="45" fill="url(#autumnCanopy1)" />
-                <circle cx="170" cy="55" r="42" fill="url(#autumnCanopy2)" />
-                <ellipse cx="170" cy="90" rx="65" ry="42" fill="url(#autumnCanopy1)" />
-
-                {/* Maple leaves icons */}
-                <text x="135" y="85" className="text-[15px]">🍁</text>
-                <text x="195" y="85" className="text-[15px]">🍁</text>
-                <text x="165" y="55" className="text-[17px]">🍂</text>
-                <text x="115" y="115" className="text-[13px]">🍁</text>
-                <text x="215" y="115" className="text-[13px]">🍂</text>
-                <text x="165" y="98" className="text-[14px]">🧡</text>
-              </g>
-            )}
-
-            {/* 4. WINTER SNOW WONDERLAND CANOPY */}
-            {season === 'winter' && (
-              <g>
-                <ellipse cx="170" cy="105" rx="82" ry="56" fill="#0C4A6E" opacity="0.4" />
-                <circle cx="118" cy="110" r="42" fill="url(#winterPineGrad)" />
-                <circle cx="222" cy="110" r="42" fill="url(#winterPineGrad)" />
-                <circle cx="140" cy="72" r="45" fill="url(#winterPineGrad)" />
-                <circle cx="200" cy="72" r="45" fill="url(#winterPineGrad)" />
-                <circle cx="170" cy="55" r="42" fill="url(#winterPineGrad)" />
-                <ellipse cx="170" cy="90" rx="65" ry="42" fill="url(#winterPineGrad)" />
-
-                {/* Snow puffs on top of canopy domes */}
-                <path d="M85 105 Q120 70 155 100 Q190 70 225 100 Q255 105 240 120 C220 128 100 128 85 105 Z" fill="url(#winterCanopy1)" />
-                <path d="M125 60 Q170 30 215 60 Q170 75 125 60 Z" fill="url(#winterCanopy1)" />
-
-                {/* Christmas ornaments & snowflakes */}
-                <circle cx="125" cy="105" r="6" fill="#EF4444" stroke="#FDE047" strokeWidth="1" />
-                <circle cx="215" cy="105" r="6" fill="#3B82F6" stroke="#FDE047" strokeWidth="1" />
-                <circle cx="170" cy="75" r="7" fill="#F59E0B" stroke="#FFFFFF" strokeWidth="1" />
-                
-                <text x="140" y="80" className="text-[13px]">❄️</text>
-                <text x="190" y="80" className="text-[13px]">❄️</text>
-                <text x="165" y="42" className="text-[15px]">⭐</text>
-              </g>
-            )}
-
-            {/* Glowing Mythical Particles */}
-            <text x="90" y="80" className="text-[14px] animate-bounce">✨</text>
-            <text x="240" y="75" className="text-[14px] animate-pulse">✨</text>
-            <text x="165" y="25" className="text-[16px] animate-bounce">💎</text>
-          </g>
-        )}
 
         {/* ============================================================= */}
         {/* ARTISAN CERAMIC POT WITH GOLD RIM & ENGRAVED NAMES            */}
@@ -554,32 +499,7 @@ export const GardenTreeVisual: React.FC<GardenTreeVisualProps> = ({
           {/* Bottom Stand / Saucer */}
           <ellipse cx="170" cy="247" rx="36" ry="5" fill="#78350F" opacity="0.8" />
 
-          {/* Couple's Names Engraved on Pot */}
-          <text
-            x="170"
-            y="228"
-            textAnchor="middle"
-            fill="#FEF3C7"
-            fontSize="10"
-            fontWeight="bold"
-            fontFamily="Georgia, serif"
-            letterSpacing="0.5"
-            style={{ filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.6))' }}
-          >
-            {userAName} ❤️ {userBName}
-          </text>
-          <text
-            x="170"
-            y="239"
-            textAnchor="middle"
-            fill="#FDE68A"
-            fontSize="7.5"
-            fontWeight="600"
-            letterSpacing="1"
-            opacity="0.9"
-          >
-            LOVE GARDEN
-          </text>
+          {/* Artisan Ceramic Pot with sleek surface - No text */}
         </g>
 
         {/* Grass Mound & Garden Floor Details */}

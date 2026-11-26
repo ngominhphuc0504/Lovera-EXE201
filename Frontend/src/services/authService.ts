@@ -167,6 +167,7 @@ export const authService = {
     if (!token) return null;
     try {
       const response = await fetch(`${BASE_API_URL}/profile/me/avatar`, {
+        cache: 'no-store',
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'image/*',

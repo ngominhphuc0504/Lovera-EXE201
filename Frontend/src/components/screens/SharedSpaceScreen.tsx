@@ -67,6 +67,14 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
   onNavigateToHome,
 }) => {
   const { userA, userB, startDate } = couple;
+  const authorAvatar = (memory: MemoryItem) => {
+    const creator = memory.creatorUserId?.toLowerCase();
+    if (creator === userA.id?.toLowerCase() || memory.isMyMemory === true) return userA.avatar;
+    if (creator === userB.id?.toLowerCase() || memory.isMyMemory === false) return userB.avatar;
+    if (!creator && memory.authorName === userA.name) return userA.avatar;
+    if (!creator && memory.authorName === userB.name) return userB.avatar;
+    return memory.authorAvatar;
+  };
   const totalDays = calculateTotalDays(startDate);
 
   // View state
@@ -493,7 +501,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 <div className="flex items-center justify-between pt-1 border-t border-stone-100 text-[10px] text-stone-400">
                   <div className="flex items-center gap-1.5 truncate">
                     <img
-                      src={mem.authorAvatar}
+                      src={authorAvatar(mem)}
                       alt={mem.authorName}
                       className="w-4 h-4 rounded-full object-cover ring-1 ring-stone-200 shrink-0"
                     />
@@ -531,7 +539,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <img
-                      src={mem.authorAvatar}
+                      src={authorAvatar(mem)}
                       alt={mem.authorName}
                       className="w-7 h-7 rounded-full object-cover ring-2 ring-rose-300"
                     />
@@ -792,7 +800,7 @@ export const SharedSpaceScreen: React.FC<SharedSpaceScreenProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <img
-                    src={selectedMemory.authorAvatar}
+                    src={authorAvatar(selectedMemory)}
                     alt={selectedMemory.authorName}
                     className="w-8 h-8 rounded-full object-cover ring-2 ring-rose-400"
                   />
