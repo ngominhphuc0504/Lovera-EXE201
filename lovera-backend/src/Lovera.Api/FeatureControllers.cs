@@ -21,6 +21,7 @@ public sealed record SetLoveStartRequest(DateOnly StartDate);
 [Route("api/couples")]
 public sealed class CouplesController(
     CoupleService couples,
+    AuthService auth,
     IConfiguration config) : LoveraController
 {
     [HttpGet("me")]
@@ -62,6 +63,19 @@ public sealed class CouplesController(
         SetLoveStartRequest request,
         CancellationToken ct) =>
         couples.SetStartDate(UserId, request.StartDate, ct);
+
+    [HttpGet("partner/avatar")]
+    public async Task<IActionResult> PartnerAvatar(CancellationToken ct)
+    {
+        var partnerId = await couples.PartnerUserId(UserId, ct);
+        var avatar = await auth.ReadAvatar(partnerId, ct);
+
+        Response.Headers["Cache-Control"] = "private, max-age=300";
+        Response.Headers["Vary"] = "Authorization";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+
+        return File(avatar.Bytes, avatar.ContentType);
+    }
 }
 
 [ApiController]

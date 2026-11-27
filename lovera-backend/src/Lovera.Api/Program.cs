@@ -31,7 +31,9 @@ foreach (var origin in allowedOrigins)
 builder.Services.AddCors(options => options.AddPolicy("Frontend", policy =>
 {
     if (allowedOrigins.Length > 0) policy.WithOrigins(allowedOrigins);
-    policy.AllowAnyHeader().AllowAnyMethod();
+    policy.AllowAnyHeader()
+        .AllowAnyMethod()
+        .WithExposedHeaders("Retry-After", "X-Request-Id");
 }));
 builder.Services.AddDbContext<LoveraDbContext>(o => o.UseNpgsql(connection));
 builder.Services.AddScoped<IUsersRepository, UsersRepository>();
@@ -232,6 +234,11 @@ await using (var scope = app.Services.CreateAsyncScope())
         throw new InvalidOperationException("Không kết nối được PostgreSQL. Hãy bật Docker Compose service db và kiểm tra ConnectionStrings:Default.");
 }
 app.UseForwardedHeaders();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Request-Id"] = context.TraceIdentifier;
+    await next();
+});
 app.UseResponseCompression();
 app.UseRouting();
 app.UseCors("Frontend");

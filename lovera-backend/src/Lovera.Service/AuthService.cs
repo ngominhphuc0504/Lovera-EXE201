@@ -276,15 +276,22 @@ public async Task ResetPassword(
     {
         var name = ValidateName(input.DisplayName);
         var user = await users.FindById(userId, ct) ?? throw new AppProblem(404, "not_found", "Không tìm thấy tài khoản.");
-        var nextAvatar = string.IsNullOrWhiteSpace(input.AvatarUrl) ? null : input.AvatarUrl;
-        if (nextAvatar is not null && !(nextAvatar == UploadedAvatarPath && user.AvatarUrl == UploadedAvatarPath) &&
+        // Omitting avatarUrl means "keep the current avatar". Avatar removal has
+        // its own endpoint so a display-name update can never delete an upload.
+        var nextAvatar = input.AvatarUrl is null
+            ? user.AvatarUrl
+            : input.AvatarUrl.Trim();
+        if (input.AvatarUrl is not null && nextAvatar!.Length == 0)
+            throw new AppProblem(400, "invalid_avatar_url", "Avatar phải là URL HTTPS hợp lệ, tối đa 2048 ký tự.");
+        if (nextAvatar is not null &&
+            !(nextAvatar == UploadedAvatarPath && user.AvatarUrl == UploadedAvatarPath) &&
             (nextAvatar.Length > 2048 || !Uri.TryCreate(nextAvatar, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps))
             throw new AppProblem(400, "invalid_avatar_url", "Avatar phải là URL HTTPS hợp lệ, tối đa 2048 ký tự.");
-        var removeUpload = user.AvatarUrl == UploadedAvatarPath && nextAvatar != UploadedAvatarPath;
+        var replaceUpload = user.AvatarUrl == UploadedAvatarPath && nextAvatar != UploadedAvatarPath;
         user.DisplayName = name;
         user.AvatarUrl = nextAvatar;
         await users.Save(ct);
-        if (removeUpload) await avatars.Delete(userId, ct);
+        if (replaceUpload) await avatars.Delete(userId, ct);
         return ToProfile(user);
     }
     public const string UploadedAvatarPath = "/api/profile/me/avatar";
@@ -313,6 +320,16 @@ public async Task ResetPassword(
         var bytes = await avatars.Read(userId, ct) ?? throw new AppProblem(404, "avatar_not_found", "Không tìm thấy ảnh avatar.");
         var contentType = DetectImageContentType(bytes) ?? throw new AppProblem(500, "avatar_corrupt", "Ảnh avatar không hợp lệ.");
         return (bytes, contentType);
+    }
+    public async Task<ProfileResponse> DeleteAvatar(Guid userId, CancellationToken ct)
+    {
+        var user = await users.FindById(userId, ct)
+                   ?? throw new AppProblem(404, "not_found", "Không tìm thấy tài khoản.");
+        var uploaded = user.AvatarUrl == UploadedAvatarPath;
+        user.AvatarUrl = null;
+        await users.Save(ct);
+        if (uploaded) await avatars.Delete(userId, ct);
+        return ToProfile(user);
     }
     private static string? DetectImageContentType(ReadOnlySpan<byte> data)
     {

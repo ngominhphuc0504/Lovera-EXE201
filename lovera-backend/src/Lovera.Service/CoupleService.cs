@@ -116,6 +116,15 @@ public sealed class CoupleService(IFeatureRepository repo, IClock clock, TimeZon
     public async Task<Couple> RequireCouple(Guid userId, CancellationToken ct) =>
         await repo.ActiveCouple(userId, ct) ?? throw new AppProblem(403, "couple_required", "Cần ghép đôi để dùng chức năng này.");
 
+    public async Task<Guid> PartnerUserId(Guid userId, CancellationToken ct)
+    {
+        var couple = await RequireCouple(userId, ct);
+        return couple.Members
+            .Where(member => member.LeftAtUtc is null && member.UserId != userId)
+            .Select(member => member.UserId)
+            .Single();
+    }
+
     public DateOnly LocalDay(DateTime utc) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, timeZone));
 
     private LoveDaysResponse ToLoveDays(Couple couple)

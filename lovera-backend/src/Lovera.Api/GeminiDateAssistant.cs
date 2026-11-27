@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using Lovera.Service;
@@ -6,7 +7,8 @@ namespace Lovera.Api;
 
 public sealed class GeminiDateAssistant(
     HttpClient http,
-    IConfiguration config) : IAiDateAssistant
+    IConfiguration config,
+    ILogger<GeminiDateAssistant> logger) : IAiDateAssistant
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -99,6 +101,25 @@ public sealed class GeminiDateAssistant(
 
     public async Task<AiAssistantResult> Reply(AiAssistantRequest input, CancellationToken ct)
     {
+        try
+        {
+            return await ReplyCore(input, ct);
+        }
+        catch (JsonException exception)
+        {
+            logger.LogWarning(exception, "Gemini returned an invalid response shape.");
+            throw;
+        }
+        catch (TaskCanceledException exception) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(exception, "Gemini request timed out.");
+            throw;
+        }
+    }
+
+    private async Task<AiAssistantResult> ReplyCore(
+        AiAssistantRequest input, CancellationToken ct)
+    {
         var endpoint = config["Ai:InteractionsUrl"] ??
                        "https://generativelanguage.googleapis.com/v1beta/interactions";
         var model = config["Ai:Model"];
@@ -106,7 +127,10 @@ public sealed class GeminiDateAssistant(
         var enableGoogleSearch = config.GetValue("Ai:EnableGoogleSearch", false);
 
         if (string.IsNullOrWhiteSpace(model) || string.IsNullOrWhiteSpace(apiKey))
+        {
+            logger.LogError("Missing Gemini configuration: Ai:Model or Ai:ApiKey.");
             throw new InvalidOperationException("Missing Ai:Model or Ai:ApiKey.");
+        }
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ||
             (uri.Scheme != Uri.UriSchemeHttps && uri.Host is not ("localhost" or "127.0.0.1")))
             throw new InvalidOperationException("Ai:InteractionsUrl must be HTTPS or a local test endpoint.");
@@ -185,6 +209,7 @@ public sealed class GeminiDateAssistant(
     private async Task<string> Send(
         Uri uri, string apiKey, object payload, CancellationToken ct)
     {
+        var startedAt = Stopwatch.GetTimestamp();
         using var request = new HttpRequestMessage(HttpMethod.Post, uri);
         request.Headers.TryAddWithoutValidation("x-goog-api-key", apiKey);
         request.Content = new StringContent(
@@ -194,8 +219,15 @@ public sealed class GeminiDateAssistant(
             request, HttpCompletionOption.ResponseHeadersRead, ct);
         var responseText = await response.Content.ReadAsStringAsync(ct);
         if (!response.IsSuccessStatusCode)
+        {
+            logger.LogWarning(
+                "Gemini request failed. Host={Host} StatusCode={StatusCode} DurationMs={DurationMs}",
+                uri.Host,
+                (int)response.StatusCode,
+                Math.Round(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds));
             throw new HttpRequestException(
                 $"Gemini returned HTTP {(int)response.StatusCode}.", null, response.StatusCode);
+        }
         return responseText;
     }
 
