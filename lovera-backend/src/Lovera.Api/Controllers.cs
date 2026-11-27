@@ -206,6 +206,12 @@ public sealed class ProfileController(
             avatar.Bytes,
             avatar.ContentType);
     }
+
+    [HttpDelete("me/avatar")]
+    [EnableRateLimiting("profile-write")]
+    public async Task<ActionResult<ProfileResponse>> DeleteAvatar(
+        CancellationToken ct) =>
+        Ok(await service.DeleteAvatar(UserId, ct));
     
     [HttpDelete("me")]
     [EnableRateLimiting("dangerous")]

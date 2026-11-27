@@ -199,8 +199,15 @@ public sealed class AiChatService(
                 request.AccuracyMeters,
                 request.LocationCapturedAt), ct);
         }
-        catch (Exception e) when (!ct.IsCancellationRequested &&
-            e is HttpRequestException or TimeoutException or TaskCanceledException or JsonException)
+        catch (InvalidOperationException) when (!ct.IsCancellationRequested)
+        {
+            throw new AppProblem(
+                503,
+                "ai_not_configured",
+                "AI chưa được cấu hình đúng. Tin nhắn của bạn đã được lưu; vui lòng báo quản trị viên.");
+        }
+        catch (Exception exception) when (!ct.IsCancellationRequested &&
+            exception is HttpRequestException or TimeoutException or TaskCanceledException or JsonException)
         {
             throw new AppProblem(503, "ai_unavailable", "AI đang bận hoặc trả dữ liệu không hợp lệ. Tin nhắn của bạn đã được lưu; vui lòng thử lại sau.");
         }

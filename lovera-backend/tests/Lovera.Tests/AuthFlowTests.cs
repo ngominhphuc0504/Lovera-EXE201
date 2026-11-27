@@ -111,7 +111,7 @@ public sealed class AuthFlowTests
     }
   
     [Fact]
-    public async Task Uploaded_avatar_is_available_only_for_the_user_and_can_be_cleared()
+    public async Task Uploaded_avatar_survives_name_update_and_can_be_deleted_explicitly()
     {
         var repo = new MemoryUsers(); var mail = new MemoryMail(); var avatars = new MemoryAvatars();
         var service = new AuthService(repo, mail, new TestClock(), avatars, new string('p', 32));
@@ -123,7 +123,11 @@ public sealed class AuthFlowTests
         Assert.Equal("image/png", file.ContentType);
         Assert.Equal(bytes, file.Bytes);
         Assert.Equal("not_found", (await Assert.ThrowsAsync<AppProblem>(() => service.ReadAvatar(Guid.NewGuid(), default))).Code);
-        await service.UpdateProfile(repo.User.Id, new("Alice", null), default);
+        var renamed = await service.UpdateProfile(repo.User.Id, new("Alice B", null), default);
+        Assert.Equal(AuthService.UploadedAvatarPath, renamed.AvatarUrl);
+        Assert.NotNull(avatars.Bytes);
+        var cleared = await service.DeleteAvatar(repo.User.Id, default);
+        Assert.Null(cleared.AvatarUrl);
         Assert.Equal("avatar_not_found", (await Assert.ThrowsAsync<AppProblem>(() => service.ReadAvatar(repo.User.Id, default))).Code);
         Assert.Null(avatars.Bytes);
     }

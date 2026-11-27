@@ -85,6 +85,7 @@ public sealed class FeatureFlowTests
         Assert.Equal("partner@example.com", status.Couple?.Partner.Email);
         Assert.Equal("/avatar.png", status.Couple?.Partner.AvatarUrl);
         Assert.Equal(partnerId, status.Couple?.Partner.UserId);
+        Assert.Equal(partnerId, await service.PartnerUserId(userId, default));
     }
 
     [Fact]
